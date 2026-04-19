@@ -1,66 +1,57 @@
-# lovstudio
+# @lovstudio/admin
 
-Install and activate [Lovstudio](https://lovstudio.ai) skills with one command.
-
-```bash
-npx lovstudio skills add write-professional-book -k lk-<your-key> -y
-```
-
-Thin wrapper over two underlying tools — it doesn't reinvent either:
-
-- [`npx skills`](https://www.npmjs.com/package/skills) (vercel-labs) — clones the public [lovstudio/skills](https://github.com/lovstudio/skills) index and installs the skill into your agent (Claude Code, Cursor, Cline, Codex, Gemini CLI, … 40+ agents supported)
-- [`uvx lovstudio-skill-helper`](https://pypi.org/project/lovstudio-skill-helper/) — license activation + per-invocation decryption for paid skills. Decryption keys never touch disk.
-
-## Usage
+Lovstudio internal ops CLI — DNS, deploy, release.
 
 ```bash
-npx lovstudio skills add <name> [options]    # install a skill
-npx lovstudio skills activate <key>          # activate/rebind a license
-npx lovstudio skills list                    # list all available skills
+npx @lovstudio/admin --help
 ```
 
-### `skills add` options
+## DNS
 
-| flag | meaning |
-|---|---|
-| `-k, --key <key>` | license key (`lk-<64 hex>`). If given, activates before install. |
-| `-a, --agent <agents>` | target agent(s), comma-separated. Omit for interactive pick. |
-| `-g, --global` | install to user scope instead of the current project |
-| `-y, --yes` | skip confirmation prompts |
-
-### Examples
+Manage `lovstudio.ai` DNS provider + records.
 
 ```bash
-# paid skill, buyer has a license already
-npx lovstudio skills add write-professional-book -k lk-abc... -y
-
-# install now, activate later (paid skill won't decrypt until activated)
-npx lovstudio skills add write-professional-book -y
-npx lovstudio skills activate lk-abc...
-
-# install into Cursor instead of Claude Code
-npx lovstudio skills add write-professional-book -a cursor -y
-
-# install into multiple agents at once
-npx lovstudio skills add write-professional-book -a claude-code,cursor,cline -y
+lovstudio dns status                # show registrar + public resolver + mode
+lovstudio dns cf                    # switch registrar NS -> Cloudflare
+lovstudio dns aliyun                # switch registrar NS -> Aliyun (CN split-horizon)
+lovstudio dns sync                  # dry-run: CF -> Aliyun standby sync
+lovstudio dns sync --apply          # apply missing records to Aliyun
 ```
 
-## Requirements
+### Environment
 
-- **Node.js ≥18** (for `npx`) — any recent Node works
-- **[uv](https://docs.astral.sh/uv/)** (for `uvx` — only needed for paid skills)
-  ```bash
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  ```
+```
+GODADDY_API_KEY      # registrar API key
+GODADDY_SECRET       # registrar API secret
+CLOUDFLARE_API_KEY   # CF token with Zone.DNS read
+ALI_AK               # Aliyun AccessKey ID
+ALI_SK               # Aliyun AccessKey Secret
+```
 
-Free skills install without `uv`. You only need it to decrypt paid skills at runtime.
+Proxy: honors `HTTPS_PROXY` / `HTTP_PROXY` (useful in mainland China).
 
-## How it works
+## Install
 
-1. If you pass `-k`, runs `uvx lovstudio-skill-helper activate <key>` — opens a browser to sign you into Lovstudio, then binds the license to your device.
-2. Runs `npx skills add lovstudio/skills -s lovstudio:<name>` — clones the public index and copies the skill (a plaintext SKILL.md for free skills, or a tiny encrypted placeholder for paid ones) into your agent's skill directory.
-3. First time your agent loads a paid skill, the placeholder calls `uvx lovstudio-skill-helper decrypt <name>` which fetches the per-version AES key over HMAC, decrypts in memory, and streams the real SKILL.md back to the agent.
+```bash
+# one-off
+npx @lovstudio/admin dns status
+
+# or global
+pnpm add -g @lovstudio/admin
+lovstudio dns status
+```
+
+## Adding a new command
+
+1. Create `src/commands/<name>/index.mjs` exporting `{ summary, run(args) }`.
+2. Register it in `src/index.mjs` `COMMANDS`.
+3. That's it.
+
+## Related
+
+- **`lovcode`** — the public product CLI for end users (separate package, TBD).
+- **`@lovstudio/admin`** — this package, internal ops.
 
 ## License
 
-MIT.
+MIT

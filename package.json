@@ -1,23 +1,28 @@
 {
-  "name": "lovstudio",
-  "version": "0.2.3",
-  "description": "Install and activate Lovstudio skills. Thin wrapper over `npx skills` + `uvx lovstudio-skill-helper`.",
+  "name": "@lovstudio/admin",
+  "version": "0.1.0",
+  "description": "Lovstudio internal ops CLI — DNS, deploy, release",
   "type": "module",
   "bin": {
     "lovstudio": "./bin/lovstudio.mjs"
   },
   "files": [
     "bin",
+    "src",
     "README.md"
   ],
   "engines": {
     "node": ">=18"
   },
+  "scripts": {
+    "start": "node ./bin/lovstudio.mjs",
+    "test:local": "node ./bin/lovstudio.mjs --help"
+  },
   "keywords": [
     "lovstudio",
-    "skills",
-    "claude-code",
-    "ai-agents"
+    "cli",
+    "ops",
+    "dns"
   ],
   "author": "Mark <shawninjuly@gmail.com>",
   "license": "MIT",
@@ -26,10 +31,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lovstudio/cli.git"
+    "url": "git+https://github.com/markshawn2020/lovstudio-admin.git"
   },
-  "homepage": "https://github.com/lovstudio/cli#readme",
-  "bugs": {
-    "url": "https://github.com/lovstudio/cli/issues"
+  "homepage": "https://github.com/markshawn2020/lovstudio-admin#readme",
+  "dependencies": {
+    "undici": "^6.21.1"
   }
 }
