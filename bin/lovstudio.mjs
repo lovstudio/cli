@@ -1,0 +1,181 @@
+#!/usr/bin/env node
+// lovstudio — thin installer/activator for Lovstudio skills.
+//
+// Composes two underlying tools:
+//   1. `uvx lovstudio-skill-helper` — license activation + runtime decryption
+//   2. `npx skills` (vercel-labs)   — marketplace + per-agent install
+//
+// We do not reimplement either one. We just resolve the flags users care
+// about (skill name, license key, target agent) and fan them out.
+
+import { spawn } from "node:child_process";
+
+const HELP = `lovstudio — install and activate Lovstudio skills
+
+Usage:
+  npx lovstudio skills add <name> [options]   add a skill (and optionally activate a license)
+  npx lovstudio skills activate <key>         activate/rebind a license key
+  npx lovstudio skills list                   list all Lovstudio skills (free + paid)
+  npx lovstudio --help                        this message
+
+Options for \`skills add\`:
+  -k, --key <key>           license key (lk-<64 hex>). Activates before install.
+  -a, --agent <agents>      target agent(s), comma-separated. Default: interactive.
+                            (see \`npx skills add --help\` for the full list — 40+ supported)
+  -g, --global              install globally (user-level) instead of project-level
+  -y, --yes                 skip confirmation prompts
+
+Examples:
+  npx lovstudio skills add write-professional-book -k lk-abc... -y
+  npx lovstudio skills add write-professional-book -a claude-code,cursor -y
+  npx lovstudio skills activate lk-abc...
+  npx lovstudio skills list
+`;
+
+const INDEX_REPO = "lovstudio/skills";
+const SKILL_PREFIX = "lovstudio:";
+
+function die(msg, code = 1) {
+  console.error(`error: ${msg}`);
+  process.exit(code);
+}
+
+// Run a child and inherit stdio so interactive prompts (login device flow,
+// skills CLI's clack UI) still work. Returns the exit code.
+function run(cmd, args) {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, { stdio: "inherit" });
+    child.on("error", (err) => {
+      if (err.code === "ENOENT") {
+        console.error(`error: '${cmd}' not found on PATH.`);
+        if (cmd === "uvx") {
+          console.error("  install uv: curl -LsSf https://astral.sh/uv/install.sh | sh");
+        } else if (cmd === "npx") {
+          console.error("  npx ships with Node.js >=18 — check your installation.");
+        }
+        resolve(127);
+      } else {
+        console.error(`error: failed to spawn ${cmd}: ${err.message}`);
+        resolve(1);
+      }
+    });
+    child.on("exit", (code) => resolve(code ?? 1));
+  });
+}
+
+// Minimal flag parser — keeps it dependency-free. Not a full getopt clone:
+// we only support flags we actually declare. Unknown flags pass through to
+// the underlying `npx skills` call where applicable.
+function parseArgs(argv) {
+  const out = { positional: [], flags: {}, passthrough: [] };
+  const known = {
+    "-k": "key", "--key": "key",
+    "-a": "agent", "--agent": "agent",
+    "-g": "global", "--global": "global",
+    "-y": "yes", "--yes": "yes",
+    "-h": "help", "--help": "help",
+  };
+  const valued = new Set(["key", "agent"]);
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const name = known[a];
+    if (name) {
+      if (valued.has(name)) {
+        const v = argv[++i];
+        if (v === undefined) die(`${a} requires a value`);
+        out.flags[name] = v;
+      } else {
+        out.flags[name] = true;
+      }
+    } else if (a.startsWith("-")) {
+      out.passthrough.push(a);
+    } else {
+      out.positional.push(a);
+    }
+  }
+  return out;
+}
+
+async function cmdSkillsAdd(args) {
+  const { positional, flags } = args;
+  if (flags.help || positional.length === 0) {
+    process.stdout.write(HELP);
+    process.exit(flags.help ? 0 : 2);
+  }
+  const skillName = positional[0];
+
+  // 1. Activate license first (if a key was passed). Skipping this when the
+  //    user omits -k lets them install the encrypted bundle ahead of getting
+  //    their key — e.g. they saw a friend use the skill and want it ready.
+  if (flags.key) {
+    const activateCode = await run("uvx", [
+      "lovstudio-skill-helper",
+      "activate",
+      flags.key,
+    ]);
+    if (activateCode !== 0) {
+      die(`activation failed (exit ${activateCode}). not installing skill.`, activateCode);
+    }
+  }
+
+  // 2. Install the skill via vercel-labs/skills. We always pass the
+  //    namespaced `lovstudio:<name>` form since that's how SKILL.md
+  //    frontmatter declares it in the index.
+  const skillArgs = ["-y", "skills", "add", INDEX_REPO,
+    "-s", `${SKILL_PREFIX}${skillName}`];
+  if (flags.agent) skillArgs.push("-a", flags.agent);
+  if (flags.global) skillArgs.push("-g");
+  if (flags.yes) skillArgs.push("-y");
+
+  const installCode = await run("npx", skillArgs);
+  if (installCode !== 0) {
+    die(`skill install failed (exit ${installCode}).`, installCode);
+  }
+
+  console.log("");
+  console.log(`✓ ${skillName} installed.`);
+  if (!flags.key) {
+    console.log(`  next: activate your license with`);
+    console.log(`        npx lovstudio skills activate lk-<your-key>`);
+  }
+}
+
+async function cmdSkillsActivate(args) {
+  const { positional } = args;
+  if (positional.length === 0) die("usage: npx lovstudio skills activate <license-key>");
+  const code = await run("uvx", ["lovstudio-skill-helper", "activate", positional[0]]);
+  process.exit(code);
+}
+
+async function cmdSkillsList() {
+  // Defer entirely to vercel-labs/skills — it already knows how to clone the
+  // index and list SKILL.md entries. -l flag = "list without install".
+  const code = await run("npx", ["-y", "skills", "add", INDEX_REPO, "-l"]);
+  process.exit(code);
+}
+
+async function main() {
+  const argv = process.argv.slice(2);
+  if (argv.length === 0 || argv[0] === "--help" || argv[0] === "-h") {
+    process.stdout.write(HELP);
+    process.exit(argv.length === 0 ? 2 : 0);
+  }
+
+  if (argv[0] !== "skills") die(`unknown command '${argv[0]}'. try 'npx lovstudio --help'.`);
+
+  const subcmd = argv[1];
+  const rest = parseArgs(argv.slice(2));
+
+  switch (subcmd) {
+    case "add":      return cmdSkillsAdd(rest);
+    case "activate": return cmdSkillsActivate(rest);
+    case "list":     return cmdSkillsList();
+    default:
+      die(`unknown subcommand 'skills ${subcmd ?? "(none)"}'. try 'npx lovstudio --help'.`);
+  }
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

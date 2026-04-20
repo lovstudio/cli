@@ -1,0 +1,35 @@
+{
+  "name": "lovstudio",
+  "version": "0.1.0",
+  "description": "Install and activate Lovstudio skills. Thin wrapper over `npx skills` + `uvx lovstudio-skill-helper`.",
+  "type": "module",
+  "bin": {
+    "lovstudio": "./bin/lovstudio.mjs"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "lovstudio",
+    "skills",
+    "claude-code",
+    "ai-agents"
+  ],
+  "author": "Mark <shawninjuly@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lovstudio/cli.git"
+  },
+  "homepage": "https://github.com/lovstudio/cli#readme",
+  "bugs": {
+    "url": "https://github.com/lovstudio/cli/issues"
+  }
+}
