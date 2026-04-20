@@ -46,6 +46,13 @@ Examples:
 const INDEX_REPO = "lovstudio/skills";
 const SKILL_PREFIX = "lovstudio:";
 
+// Pin a minimum skill-helper version — the bare `uvx lovstudio-skill-helper`
+// form happily reuses an older cached install and misses newer subcommands
+// (e.g. `admin-issue-license` was added in 0.6.0).
+const HELPER_MIN_VERSION = "0.6.0";
+const HELPER_SPEC = `lovstudio-skill-helper>=${HELPER_MIN_VERSION}`;
+const UVX_PREFIX = ["--from", HELPER_SPEC, "lovstudio-skill-helper"];
+
 function die(msg, code = 1) {
   console.error(`error: ${msg}`);
   process.exit(code);
@@ -119,11 +126,7 @@ async function cmdSkillsAdd(args) {
   //    user omits -k lets them install the encrypted bundle ahead of getting
   //    their key — e.g. they saw a friend use the skill and want it ready.
   if (flags.key) {
-    const activateCode = await run("uvx", [
-      "lovstudio-skill-helper",
-      "activate",
-      flags.key,
-    ]);
+    const activateCode = await run("uvx", [...UVX_PREFIX, "activate", flags.key]);
     if (activateCode !== 0) {
       die(`activation failed (exit ${activateCode}). not installing skill.`, activateCode);
     }
@@ -154,7 +157,7 @@ async function cmdSkillsAdd(args) {
 async function cmdSkillsActivate(args) {
   const { positional } = args;
   if (positional.length === 0) die("usage: npx lovstudio skills activate <license-key>");
-  const code = await run("uvx", ["lovstudio-skill-helper", "activate", positional[0]]);
+  const code = await run("uvx", [...UVX_PREFIX, "activate", positional[0]]);
   process.exit(code);
 }
 
@@ -179,7 +182,7 @@ async function cmdLicenseIssue(argv) {
       die(`unknown flag for 'license issue': ${a}`);
     }
   }
-  const code = await run("uvx", ["lovstudio-skill-helper", "admin-issue-license", ...passthrough]);
+  const code = await run("uvx", [...UVX_PREFIX, "admin-issue-license", ...passthrough]);
   process.exit(code);
 }
 
