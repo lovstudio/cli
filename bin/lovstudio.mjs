@@ -13,10 +13,11 @@ import { spawn } from "node:child_process";
 const HELP = `lovstudio — install and activate Lovstudio skills
 
 Usage:
-  npx lovstudio skills add <name> [options]   add a skill (and optionally activate a license)
-  npx lovstudio skills activate <key>         activate/rebind a license key
-  npx lovstudio skills list                   list all Lovstudio skills (free + paid)
-  npx lovstudio --help                        this message
+  npx lovstudio skills add <name> [options]      add a skill (and optionally activate a license)
+  npx lovstudio skills activate <key>            activate/rebind a license key
+  npx lovstudio skills list                      list all Lovstudio skills (free + paid)
+  npx lovstudio license issue [options]          (admin) mint a new license key
+  npx lovstudio --help                           this message
 
 Options for \`skills add\`:
   -k, --key <key>           license key (lk-<64 hex>). Activates before install.
@@ -25,11 +26,21 @@ Options for \`skills add\`:
   -g, --global              install globally (user-level) instead of project-level
   -y, --yes                 skip confirmation prompts
 
+Options for \`license issue\` (admin-only):
+  --skills <csv>            skills to grant (comma-separated, required)
+  --user <uuid>             bind to an auth user (omit = anonymous key)
+  --max-devices <n>         default: 1
+  --expires-days <n>        default: 365 (0 = no expiry)
+  --notes <text>            free-form note stored on the license row
+  --force-new               mint new key even if user already has one
+  --json                    raw JSON output
+
 Examples:
   npx lovstudio skills add write-professional-book -k lk-abc... -y
   npx lovstudio skills add write-professional-book -a claude-code,cursor -y
   npx lovstudio skills activate lk-abc...
   npx lovstudio skills list
+  npx lovstudio license issue --skills write-professional-book --notes "微信付款"
 `;
 
 const INDEX_REPO = "lovstudio/skills";
@@ -147,6 +158,31 @@ async function cmdSkillsActivate(args) {
   process.exit(code);
 }
 
+async function cmdLicenseIssue(argv) {
+  // Pass admin flags through verbatim to the hidden skill-helper subcommand.
+  // `uvx` ensures any admin on any machine runs the same pinned version.
+  const passthrough = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--skills" || a === "--user" || a === "--max-devices" ||
+        a === "--expires-days" || a === "--notes" || a === "--source" ||
+        a === "--scope" || a === "--scope-value") {
+      const v = argv[++i];
+      if (v === undefined) die(`${a} requires a value`);
+      passthrough.push(a, v);
+    } else if (a === "--force-new" || a === "--json") {
+      passthrough.push(a);
+    } else if (a === "-h" || a === "--help") {
+      process.stdout.write(HELP);
+      process.exit(0);
+    } else {
+      die(`unknown flag for 'license issue': ${a}`);
+    }
+  }
+  const code = await run("uvx", ["lovstudio-skill-helper", "admin-issue-license", ...passthrough]);
+  process.exit(code);
+}
+
 async function cmdSkillsList() {
   // Defer entirely to vercel-labs/skills — it already knows how to clone the
   // index and list SKILL.md entries. -l flag = "list without install".
@@ -161,18 +197,26 @@ async function main() {
     process.exit(argv.length === 0 ? 2 : 0);
   }
 
-  if (argv[0] !== "skills") die(`unknown command '${argv[0]}'. try 'npx lovstudio --help'.`);
-
+  const noun = argv[0];
   const subcmd = argv[1];
-  const rest = parseArgs(argv.slice(2));
 
-  switch (subcmd) {
-    case "add":      return cmdSkillsAdd(rest);
-    case "activate": return cmdSkillsActivate(rest);
-    case "list":     return cmdSkillsList();
-    default:
-      die(`unknown subcommand 'skills ${subcmd ?? "(none)"}'. try 'npx lovstudio --help'.`);
+  if (noun === "skills") {
+    const rest = parseArgs(argv.slice(2));
+    switch (subcmd) {
+      case "add":      return cmdSkillsAdd(rest);
+      case "activate": return cmdSkillsActivate(rest);
+      case "list":     return cmdSkillsList();
+      default:
+        die(`unknown subcommand 'skills ${subcmd ?? "(none)"}'. try 'npx lovstudio --help'.`);
+    }
   }
+
+  if (noun === "license") {
+    if (subcmd === "issue") return cmdLicenseIssue(argv.slice(2));
+    die(`unknown subcommand 'license ${subcmd ?? "(none)"}'. try 'npx lovstudio --help'.`);
+  }
+
+  die(`unknown command '${noun}'. try 'npx lovstudio --help'.`);
 }
 
 main().catch((err) => {
