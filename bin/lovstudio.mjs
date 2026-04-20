@@ -27,7 +27,9 @@ Options for \`skills add\`:
   -y, --yes                 skip confirmation prompts
 
 Options for \`license issue\` (admin-only):
-  --skills <csv>            skills to grant (comma-separated, required)
+  --skills <csv>            skills to grant (comma-separated). Alias: --skill
+  --scope global            shortcut: grant every skill in the catalog
+  --scope category --scope-value <cat>   grant all skills in a category
   --user <uuid>             bind to an auth user (omit = anonymous key)
   --max-devices <n>         default: 1
   --expires-days <n>        default: 365 (0 = no expiry)
@@ -41,6 +43,8 @@ Examples:
   npx lovstudio skills activate lk-abc...
   npx lovstudio skills list
   npx lovstudio license issue --skills write-professional-book --notes "微信付款"
+  npx lovstudio license issue --skill wxmp-cracker --expires-days 1 --notes "1天试用"
+  npx lovstudio license issue --scope global --notes "全套体验"
 `;
 
 const INDEX_REPO = "lovstudio/skills";
@@ -167,12 +171,13 @@ async function cmdLicenseIssue(argv) {
   const passthrough = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--skills" || a === "--user" || a === "--max-devices" ||
+    if (a === "--skills" || a === "--skill" || a === "--user" || a === "--max-devices" ||
         a === "--expires-days" || a === "--notes" || a === "--source" ||
         a === "--scope" || a === "--scope-value") {
       const v = argv[++i];
       if (v === undefined) die(`${a} requires a value`);
-      passthrough.push(a, v);
+      // Accept --skill as an alias for --skills (common typo).
+      passthrough.push(a === "--skill" ? "--skills" : a, v);
     } else if (a === "--force-new" || a === "--json") {
       passthrough.push(a);
     } else if (a === "-h" || a === "--help") {
