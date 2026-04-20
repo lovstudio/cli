@@ -2,12 +2,16 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { dnsCommand } from "./commands/dns/index.mjs";
+import { licenseCommand } from "./commands/license/index.mjs";
+import { skillsCommand } from "./commands/skills/index.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Command registry. Add future commands here.
 const COMMANDS = {
   dns: dnsCommand,
+  license: licenseCommand,
+  skills: skillsCommand,
 };
 
 async function readVersion() {
@@ -20,7 +24,7 @@ function printRootHelp(version) {
   const cmds = Object.keys(COMMANDS)
     .map((n) => `  ${n.padEnd(10)} ${COMMANDS[n].summary}`)
     .join("\n");
-  console.log(`lovstudio v${version} — Lovstudio internal ops CLI
+  console.log(`lovstudio v${version} — install skills, activate licenses, ops
 
 Usage:
   lovstudio <command> [subcommand] [options]
@@ -33,10 +37,10 @@ Global:
   -v, --version   show version
 
 Examples:
+  lovstudio license <your-key>
+  lovstudio skills add wxmp-cracker --with-deps
+  lovstudio skills list
   lovstudio dns status
-  lovstudio dns cf
-  lovstudio dns aliyun
-  lovstudio dns sync --apply
 `);
 }
 

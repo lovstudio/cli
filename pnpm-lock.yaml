@@ -11,6 +11,9 @@ importers:
       undici:
         specifier: ^6.21.1
         version: 6.25.0
+      yaml:
+        specifier: ^2.8.3
+        version: 2.8.3
 
 packages:
 
@@ -18,6 +21,13 @@ packages:
     resolution: {integrity: sha512-ZgpWDC5gmNiuY9CnLVXEH8rl50xhRCuLNA97fAUnKi8RRuV4E6KG31pDTsLVUKnohJE0I3XDrTeEydAXRw47xg==}
     engines: {node: '>=18.17'}
 
+  yaml@2.8.3:
+    resolution: {integrity: sha512-AvbaCLOO2Otw/lW5bmh9d/WEdcDFdQp2Z2ZUH3pX9U2ihyUY0nvLv7J6TrWowklRGPYbB/IuIMfYgxaCPg5Bpg==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
 snapshots:
 
   undici@6.25.0: {}
+
+  yaml@2.8.3: {}
