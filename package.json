@@ -1,6 +1,6 @@
 {
   "name": "lovstudio",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Install and activate Lovstudio skills. Thin wrapper over `npx skills` + `uvx lovstudio-skill-helper`.",
   "type": "module",
   "bin": {

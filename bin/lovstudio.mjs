@@ -31,9 +31,12 @@ Options for \`license issue\` (admin-only):
   --scope global            shortcut: grant every skill in the catalog
   --scope category --scope-value <cat>   grant all skills in a category
   --user <uuid>             bind to an auth user (omit = anonymous key)
+  --nickname <name>         recipient label (e.g. 李柯江). Used to greet them
+                            in the forwardable message; stays attached so the
+                            key can be bound once they register.
   --max-devices <n>         default: 1
   --expires-days <n>        default: 365 (0 = no expiry)
-  --notes <text>            free-form note stored on the license row
+  --notes <text>            free-form admin note stored on the license row
   --force-new               mint new key even if user already has one
   --json                    raw JSON output
 
@@ -44,7 +47,7 @@ Examples:
   npx lovstudio skills list
   npx lovstudio license issue --skills write-professional-book --notes "微信付款"
   npx lovstudio license issue --skill wxmp-cracker --expires-days 1 --notes "1天试用"
-  npx lovstudio license issue --scope global --notes "全套体验"
+  npx lovstudio license issue --scope global --nickname 李柯江 --notes "全套体验"
 `;
 
 const INDEX_REPO = "lovstudio/skills";
@@ -53,7 +56,7 @@ const SKILL_PREFIX = "lovstudio:";
 // Pin a minimum skill-helper version — the bare `uvx lovstudio-skill-helper`
 // form happily reuses an older cached install and misses newer subcommands
 // (e.g. `admin-issue-license` was added in 0.6.0).
-const HELPER_MIN_VERSION = "0.6.0";
+const HELPER_MIN_VERSION = "0.6.7";
 const HELPER_SPEC = `lovstudio-skill-helper>=${HELPER_MIN_VERSION}`;
 const UVX_PREFIX = ["--from", HELPER_SPEC, "lovstudio-skill-helper"];
 
@@ -172,8 +175,8 @@ async function cmdLicenseIssue(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--skills" || a === "--skill" || a === "--user" || a === "--max-devices" ||
-        a === "--expires-days" || a === "--notes" || a === "--source" ||
-        a === "--scope" || a === "--scope-value") {
+        a === "--expires-days" || a === "--notes" || a === "--nickname" ||
+        a === "--source" || a === "--scope" || a === "--scope-value") {
       const v = argv[++i];
       if (v === undefined) die(`${a} requires a value`);
       // Accept --skill as an alias for --skills (common typo).
