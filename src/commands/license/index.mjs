@@ -21,6 +21,10 @@ const ADMIN_ISSUE_FLAGS_BOOL = new Set(["--force-new", "--json"]);
 // license issue — forwards to the helper's hidden `admin-issue-license`
 // subcommand. Only admins with the right DB creds succeed.
 function runLicenseIssue(argv) {
+  if (argv[0] === "-h" || argv[0] === "--help") {
+    printHelp();
+    return;
+  }
   const passthrough = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
