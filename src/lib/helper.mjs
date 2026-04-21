@@ -6,7 +6,7 @@
 
 import { hasBin, runInherit } from "./exec.mjs";
 
-export const HELPER_MIN_VERSION = "0.6.7";
+export const HELPER_MIN_VERSION = "0.8.0";
 export const HELPER_SPEC = `lovstudio-skill-helper>=${HELPER_MIN_VERSION}`;
 export const UVX_PREFIX = ["--from", HELPER_SPEC, "lovstudio-skill-helper"];
 

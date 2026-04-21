@@ -1,6 +1,6 @@
 {
   "name": "lovstudio",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Lovstudio CLI — license activation, skill install, DNS ops",
   "type": "module",
   "bin": {
