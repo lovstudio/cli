@@ -7,7 +7,7 @@ import { hasBin, runCapture, runInherit } from "../../lib/exec.mjs";
 import { runHelper } from "../../lib/helper.mjs";
 
 const GALLERY = "lovstudio/skills";
-const SKILL_PREFIX = "lovstudio:";
+const SKILL_PREFIX = "lovstudio-";
 
 // Where `npx skills add -g` writes the bundle (vercel-labs/skills convention).
 function globalSkillDir(name) {

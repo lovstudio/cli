@@ -25,7 +25,7 @@ encrypted placeholder SKILL.md) and runs each `check` command. With
 `install` command.
 
 Under the hood:
-- `skills add` → `npx skills add lovstudio/skills --skill lovstudio:<name>` (vercel-labs/skills)
+- `skills add` → `npx skills add lovstudio/skills --skill lovstudio-<name>` (vercel-labs/skills)
 - `license *` → `uvx lovstudio-skill-helper *` (pinned version)
 
 ## For ops
