@@ -24,7 +24,7 @@ function printRootHelp(version) {
   const cmds = Object.keys(COMMANDS)
     .map((n) => `  ${n.padEnd(10)} ${COMMANDS[n].summary}`)
     .join("\n");
-  console.log(`lovstudio v${version} — install skills, activate licenses, ops
+  console.log(`lovstudio v${version} — install skills and activate licenses
 
 Usage:
   lovstudio <command> [subcommand] [options]
@@ -38,6 +38,7 @@ Global:
 
 Examples:
   lovstudio license <your-key>
+  lovstudio skills add skills -g -y
   lovstudio skills add wxmp-cracker --with-deps
   lovstudio skills list
   lovstudio dns status

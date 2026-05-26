@@ -15,9 +15,10 @@ export function ensureUvx() {
   console.error(`error: \`uvx\` not found in PATH.
 
 This command shells out to \`uvx lovstudio-skill-helper\` (Python).
-Install uv first (one command, no Python env fuss):
+Install uv first (it provides \`uvx\`; no manual Python env needed):
 
-  curl -LsSf https://astral.sh/uv/install.sh | sh
+  macOS/Linux: curl -LsSf https://astral.sh/uv/install.sh | sh
+  Windows:     powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 Then re-run this command.`);
   process.exit(127);

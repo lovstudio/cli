@@ -1,10 +1,10 @@
 {
   "name": "lovstudio",
-  "version": "0.4.1",
-  "description": "Lovstudio CLI — license activation, skill install, DNS ops",
+  "version": "0.4.2",
+  "description": "Lovstudio CLI — install skills and activate licenses.",
   "type": "module",
   "bin": {
-    "lovstudio": "./bin/lovstudio.mjs"
+    "lovstudio": "bin/lovstudio.mjs"
   },
   "files": [
     "bin",
@@ -23,8 +23,7 @@
     "cli",
     "skills",
     "claude-code",
-    "ai-agents",
-    "dns"
+    "ai-agents"
   ],
   "author": "Mark <shawninjuly@gmail.com>",
   "license": "MIT",

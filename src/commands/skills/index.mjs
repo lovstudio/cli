@@ -7,11 +7,25 @@ import { hasBin, runCapture, runInherit } from "../../lib/exec.mjs";
 import { runHelper } from "../../lib/helper.mjs";
 
 const GALLERY = "lovstudio/skills";
+const SKILLS_NPX_SPEC = "skills@latest";
 const SKILL_PREFIX = "lovstudio-";
+const ALL_SKILLS_NAMES = new Set(["*", "all", "skills", GALLERY]);
 
-// Where `npx skills add -g` writes the bundle (vercel-labs/skills convention).
+function isAllSkillsName(name) {
+  return ALL_SKILLS_NAMES.has(String(name).trim().toLowerCase());
+}
+
+function skillSelector(name) {
+  const value = String(name).trim();
+  if (isAllSkillsName(value)) return "*";
+  if (value.startsWith(SKILL_PREFIX)) return value;
+  if (value.startsWith("lovstudio:")) return `${SKILL_PREFIX}${value.slice("lovstudio:".length)}`;
+  return `${SKILL_PREFIX}${value}`;
+}
+
+// Where `npx skills add -g` writes the canonical bundle (vercel-labs/skills convention).
 function globalSkillDir(name) {
-  return join(homedir(), ".claude", "skills", name);
+  return join(homedir(), ".agents", "skills", skillSelector(name));
 }
 
 function ensureNpx() {
@@ -95,10 +109,12 @@ function resolveMissing(missing, withDeps) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function parseAddArgs(argv) {
-  const out = { name: null, key: null, agent: null, global: false, yes: false, withDeps: false, extra: [] };
+  const out = { name: null, key: null, agent: null, global: true, yes: false, withDeps: false, help: false, extra: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
+      case "-h": case "--help":
+        out.help = true; break;
       case "-k": case "--key":
         out.key = argv[++i]; break;
       case "-a": case "--agent":
@@ -125,8 +141,12 @@ function parseAddArgs(argv) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function addAction(rawArgs) {
-  ensureNpx();
   const args = parseAddArgs(rawArgs);
+  if (args.help) {
+    printHelp();
+    return;
+  }
+  ensureNpx();
   if (!args.name) {
     console.error("usage: lovstudio skills add <name> [-k <license-key>] [-a <agent>] [-g] [-y] [--with-deps]");
     process.exit(2);
@@ -143,15 +163,19 @@ async function addAction(rawArgs) {
   }
 
   // 2. Install via vercel-labs/skills. Use the namespaced form — that's how
-  //    SKILL.md frontmatter declares skills in the index.
-  console.log(`Installing ${args.name} from ${GALLERY}...`);
+  //    SKILL.md frontmatter declares skills in the index. Historical issue
+  //    messages told users to pass `lovstudio/skills`; keep that as an alias
+  //    for "install the whole catalog" so older copy-paste instructions work.
+  const selector = skillSelector(args.name);
+  const installAll = selector === "*";
+  console.log(`Installing ${installAll ? "all Lovstudio skills" : args.name} from ${GALLERY}...`);
   const skillArgs = [
-    "-y", "skills", "add", GALLERY,
-    "-s", `${SKILL_PREFIX}${args.name}`,
+    "-y", SKILLS_NPX_SPEC, "add", GALLERY,
+    "--skill", selector,
   ];
   if (args.agent) skillArgs.push("-a", args.agent);
-  if (args.global) skillArgs.push("-g");
-  if (args.yes) skillArgs.push("-y");
+  if (args.global) skillArgs.push("--global");
+  if (args.yes) skillArgs.push("--yes");
   skillArgs.push(...args.extra);
 
   const installCode = runInherit("npx", skillArgs);
@@ -161,9 +185,10 @@ async function addAction(rawArgs) {
   }
 
   // 3. Preflight deps from placeholder frontmatter. Only meaningful for
-  //    global installs — project installs land in ./skills/ with no easy
-  //    way to locate from here.
-  if (args.global) {
+  //    single global installs — project installs land in ./skills/ with no
+  //    easy way to locate from here, and full-catalog installs would need to
+  //    aggregate many frontmatters.
+  if (args.global && !installAll) {
     const fm = await readSkillFrontmatter(args.name);
     if (fm) {
       const missing = preflightReport(args.name, fm.dependencies);
@@ -176,7 +201,7 @@ async function addAction(rawArgs) {
     }
   }
 
-  console.log(`\n✓ ${args.name} installed.`);
+  console.log(`\n✓ ${installAll ? "all Lovstudio skills" : args.name} installed.`);
   if (!args.key) {
     console.log(`  next: activate your license with`);
     console.log(`        lovstudio license <your-key>`);
@@ -195,12 +220,12 @@ async function activateAction(rest) {
 async function listAction() {
   ensureNpx();
   // Defer to vercel-labs/skills — it clones the index and lists SKILL.md entries.
-  process.exit(runInherit("npx", ["-y", "skills", "add", GALLERY, "-l"]));
+  process.exit(runInherit("npx", ["-y", SKILLS_NPX_SPEC, "add", GALLERY, "--list"]));
 }
 
 async function delegate(sub, args) {
   ensureNpx();
-  process.exit(runInherit("npx", ["-y", "skills", sub, ...args]));
+  process.exit(runInherit("npx", ["-y", SKILLS_NPX_SPEC, sub, ...args]));
 }
 
 function printHelp() {
@@ -208,6 +233,7 @@ function printHelp() {
 
 Usage:
   lovstudio skills add <name> [options]        install a skill
+  lovstudio skills add skills [options]        install all Lovstudio skills
   lovstudio skills activate <key>              activate a license (alias of \`license <key>\`)
   lovstudio skills list                        list all Lovstudio skills
   lovstudio skills remove [<name>...]          uninstall
@@ -217,13 +243,14 @@ Usage:
 Options for \`add\`:
   -k, --key <key>      license key. Activates before install (skip to activate later).
   -a, --agent <list>   target agent(s), comma-separated (see \`npx skills add --help\`)
-  -g, --global         install globally into ~/.claude/skills/ (default)
+  -g, --global         install globally into ~/.agents/skills/ and agent dirs (default)
       --project        install into ./skills/ for the current project
   -y, --yes            skip confirmation prompts
       --with-deps      auto-install missing runtime deps declared in SKILL.md
 
-\`add\` installs from ${GALLERY} (no need to type the gallery path), then
-reads the skill's \`dependencies:\` frontmatter and runs each \`check\`
+\`add\` installs from ${GALLERY} (no need to type the gallery path). Passing
+\`skills\`, \`all\`, \`*\`, or \`${GALLERY}\` installs the full catalog. Single-skill
+installs read the skill's \`dependencies:\` frontmatter and run each \`check\`
 command. With --with-deps, missing ones are installed automatically.
 `);
 }

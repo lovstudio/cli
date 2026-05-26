@@ -1,6 +1,6 @@
 # lovstudio
 
-One CLI for Lovstudio users and ops: install skills, activate license keys, and manage the lovstudio.ai domain.
+One CLI for Lovstudio users: install skills and activate license keys.
 
 ```bash
 npx lovstudio --help
@@ -15,6 +15,9 @@ npx lovstudio license <your-license-key>
 # Install a skill + preflight its runtime deps, auto-installing any that are missing
 npx lovstudio skills add wxmp-cracker --with-deps
 
+# Install the full Lovstudio skill catalog globally
+npx lovstudio skills add skills -g -y
+
 # List all skills in the catalog
 npx lovstudio skills list
 ```
@@ -25,7 +28,8 @@ encrypted placeholder SKILL.md) and runs each `check` command. With
 `install` command.
 
 Under the hood:
-- `skills add` → `npx skills add lovstudio/skills --skill lovstudio-<name>` (vercel-labs/skills)
+- `skills add <name>` → `npx -y skills@latest add lovstudio/skills --skill lovstudio-<name>` (vercel-labs/skills)
+- `skills add skills` → `npx -y skills@latest add lovstudio/skills --skill '*'`
 - `license *` → `uvx lovstudio-skill-helper *` (pinned version)
 
 ## For ops
@@ -62,6 +66,8 @@ lovstudio skills list
 ```
 
 Requires Node ≥18. `license *` commands additionally require [uv](https://astral.sh/uv).
+On Windows, use the same commands from PowerShell; the CLI resolves npm's
+`npx.cmd` shim internally.
 
 ## Adding a new command
 
