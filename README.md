@@ -9,27 +9,37 @@ npx lovstudio --help
 ## For end users
 
 ```bash
-# Activate your license (one-time)
-npx lovstudio license <your-license-key>
+# Install a free Skill directly
+npx lovstudio skills add any2pdf
+
+# Install a paid Skill (the command signs in, asks for Credits, then downloads
+# the encrypted bundle)
+npx lovstudio skills add subtitle-freedom
 
 # Install a skill + preflight its runtime deps, auto-installing any that are missing
 npx lovstudio skills add wxmp-cracker --with-deps
 
-# Install the full Lovstudio skill catalog globally
+# Install all free Skills globally; add paid Skills individually
 npx lovstudio skills add skills -g -y
 
 # List all skills in the catalog
 npx lovstudio skills list
 ```
 
-`skills add` resolves the skill's `dependencies:` frontmatter (shipped in the
-encrypted placeholder SKILL.md) and runs each `check` command. With
-`--with-deps`, missing ones are installed automatically via their declared
-`install` command.
+`skills add` reads the unified `lovstudio/skills` catalog before installation.
+Free Skills install directly. Paid Skills must have an encrypted bundle; the
+CLI signs in to Lovstudio, confirms the current Credits price, completes the
+redemption, and only then downloads the bundle. The encrypted placeholder
+uses the same account entitlement at runtime, so plaintext Skill code is not
+written to disk.
+
+The command also resolves the Skill's `dependencies:` frontmatter and runs each
+`check` command. With `--with-deps`, missing ones are installed automatically
+via their declared `install` command.
 
 Under the hood:
 - `skills add <name>` → `npx -y skills@latest add lovstudio/skills --skill lovstudio-<name>` (vercel-labs/skills)
-- `skills add skills` → `npx -y skills@latest add lovstudio/skills --skill '*'`
+- `skills add skills` → resolves the unified catalog and passes all free `lovstudio-<name>` selectors
 - `license *` → `uvx lovstudio-skill-helper *` (pinned version)
 
 ## For ops

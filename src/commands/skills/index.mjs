@@ -2,14 +2,19 @@ import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { parse as parseYaml } from "yaml";
 import { hasBin, runCapture, runInherit } from "../../lib/exec.mjs";
+import { hfetch } from "../../lib/fetch.mjs";
 import { runHelper } from "../../lib/helper.mjs";
 
 const GALLERY = "lovstudio/skills";
 const SKILLS_NPX_SPEC = "skills@latest";
 const SKILL_PREFIX = "lovstudio-";
 const ALL_SKILLS_NAMES = new Set(["*", "all", "skills", GALLERY]);
+const CATALOG_URL = process.env.LOVSTUDIO_SKILLS_CATALOG_URL ||
+  `https://raw.githubusercontent.com/${GALLERY}/main/skills.yaml`;
+const WEB_URL = (process.env.LOVSTUDIO_WEB_URL || "https://lovstudio.ai").replace(/\/$/, "");
 
 function isAllSkillsName(name) {
   return ALL_SKILLS_NAMES.has(String(name).trim().toLowerCase());
@@ -32,6 +37,168 @@ function ensureNpx() {
   if (hasBin("npx")) return;
   console.error(`error: \`npx\` not found. Install Node.js 18+ first (nodejs.org).`);
   process.exit(127);
+}
+
+function authFilePath() {
+  const root = process.env.LOVSTUDIO_HOME || join(homedir(), ".lovstudio");
+  return join(root, "auth.yml");
+}
+
+async function readAccountSession() {
+  try {
+    return parseYaml(await readFile(authFilePath(), "utf8")) || null;
+  } catch {
+    return null;
+  }
+}
+
+async function requireAccountToken() {
+  let session = await readAccountSession();
+  const expiresAt = Number(session?.expires_at || 0);
+  if (!session?.access_token || expiresAt <= Math.floor(Date.now() / 1000) + 60) {
+    console.log("\n需要登录 Lovstudio 账户，正在打开登录确认页…");
+    const code = runHelper(["login"]);
+    if (code !== 0) {
+      console.error(`登录未完成（退出码 ${code}），未安装付费 Skill。`);
+      process.exit(code || 1);
+    }
+    session = await readAccountSession();
+  }
+  if (!session?.access_token) {
+    console.error("登录状态未找到，未安装付费 Skill。请重新运行并完成登录。 ");
+    process.exit(1);
+  }
+  return session.access_token;
+}
+
+async function loadCatalog() {
+  const response = await hfetch(CATALOG_URL, {
+    headers: { accept: "text/yaml, text/plain" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new Error(`catalog request failed: HTTP ${response.status}`);
+  }
+  const data = parseYaml(await response.text()) || {};
+  return Array.isArray(data.skills) ? data.skills.filter((skill) => !skill.test) : [];
+}
+
+function canonicalSkillName(name) {
+  const value = String(name).trim();
+  if (value.startsWith(SKILL_PREFIX)) return value.slice(SKILL_PREFIX.length);
+  if (value.startsWith("lovstudio:")) return value.slice("lovstudio:".length);
+  return value;
+}
+
+async function resolveCatalogSkill(name) {
+  let catalog;
+  try {
+    catalog = await loadCatalog();
+  } catch (error) {
+    console.error(`读取 Lovstudio Skills 目录失败：${error instanceof Error ? error.message : String(error)}`);
+    console.error("为保护付费 Skill，目录不可用时不会继续安装。稍后重试即可。");
+    process.exit(1);
+  }
+  const canonical = canonicalSkillName(name);
+  const skill = catalog.find((entry) => entry?.name === canonical);
+  if (!skill) {
+    console.error(`目录中没有找到 Skill：${canonical}`);
+    console.error(`查看可用 Skill：npx lovstudio skills list`);
+    process.exit(2);
+  }
+  return skill;
+}
+
+async function resolveFreeCatalogSelectors() {
+  let catalog;
+  try {
+    catalog = await loadCatalog();
+  } catch (error) {
+    console.error(`读取 Lovstudio Skills 目录失败：${error instanceof Error ? error.message : String(error)}`);
+    console.error("为保护付费 Skill，目录不可用时不会继续批量安装。稍后重试即可。");
+    process.exit(1);
+  }
+  const selectors = catalog
+    .filter((skill) => !skill?.paid)
+    .map((skill) => skillSelector(skill.name))
+    .filter(Boolean);
+  if (!selectors.length) {
+    console.error("统一目录中没有可直接安装的免费 Skill。");
+    process.exit(1);
+  }
+  return selectors;
+}
+
+async function fetchRedemptionPrice(name) {
+  const url = `${WEB_URL}/api/skills/price?name=${encodeURIComponent(name)}`;
+  const response = await hfetch(url, { signal: AbortSignal.timeout(15_000) });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || typeof body.price_credits !== "number") {
+    throw new Error(body.error || `price request failed: HTTP ${response.status}`);
+  }
+  return body;
+}
+
+async function confirmPurchase(name, price, yes) {
+  if (yes) return true;
+  if (!process.stdin.isTTY) {
+    console.error(`付费 Skill 需要确认兑换 ${price.price_credits} Credits；非交互环境请追加 --yes。`);
+    return false;
+  }
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await prompt.question(`「${name}」需要 ${price.price_credits} Credits，继续兑换并安装吗？[y/N] `);
+    return /^y(es)?$/i.test(answer.trim());
+  } finally {
+    prompt.close();
+  }
+}
+
+async function redeemPaidSkill(skill, yes) {
+  if (!skill.encrypted_bundle) {
+    console.error(`Skill「${skill.name}」已标记为付费，但聚合目录还没有可分发的加密包。`);
+    console.error("发布者需要先完成加密打包；本次不会下载明文代码。");
+    process.exit(1);
+  }
+
+  let price;
+  try {
+    price = await fetchRedemptionPrice(skill.name);
+  } catch (error) {
+    console.error(`读取「${skill.name}」的 Credits 兑换价失败：${error instanceof Error ? error.message : String(error)}`);
+    console.error("价格未确认前不会安装付费 Skill。");
+    process.exit(1);
+  }
+  if (!(await confirmPurchase(skill.name, price, yes))) {
+    console.log("已取消兑换，未安装付费 Skill。");
+    process.exit(0);
+  }
+
+  const token = await requireAccountToken();
+  const response = await hfetch(`${WEB_URL}/api/skills/purchase`, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ skill_name: skill.name }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 402) {
+      console.error(`Credits 余额不足，需要 ${price.price_credits} Credits。`);
+      console.error(`充值后重新运行：npx lovstudio skills add ${skill.name}`);
+    } else if (response.status === 401) {
+      console.error("Lovstudio 登录状态已失效，请重新运行命令完成登录。 ");
+    } else {
+      console.error(`兑换「${skill.name}」失败：${body.error || `HTTP ${response.status}`}`);
+    }
+    process.exit(1);
+  }
+  const balance = typeof body.remaining_balance === "number" ? `，余额 ${body.remaining_balance} Credits` : "";
+  console.log(body.already_owned ? `✓ 已拥有「${skill.name}」，无需重复扣除 Credits${balance}。` : `✓ 已兑换「${skill.name}」${balance}。`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,8 +319,8 @@ async function addAction(rawArgs) {
     process.exit(2);
   }
 
-  // 1. Optional license activation first. Install proceeds anyway if no -k
-  //    was passed — lets people prep the bundle before they have a key.
+  // 1. Keep the legacy license-key option for existing users. New paid Skills
+  //    use the Lovstudio account + Credits path below.
   if (args.key) {
     const code = runHelper(["activate", args.key]);
     if (code !== 0) {
@@ -162,16 +329,30 @@ async function addAction(rawArgs) {
     }
   }
 
-  // 2. Install via vercel-labs/skills. Use the namespaced form — that's how
+  // 2. Resolve the unified catalog before installing a single Skill. This is
+  //    also the paid gate: purchase/login completes before npx downloads the
+  //    encrypted bundle.
+  const selector = skillSelector(args.name);
+  const installAll = selector === "*";
+  let selectors = [selector];
+  if (!installAll) {
+    const skill = await resolveCatalogSkill(args.name);
+    if (skill.paid) await redeemPaidSkill(skill, args.yes);
+  } else {
+    // The aggregate command is intentionally free-only. Paid Skills must be
+    // redeemed one at a time so the user sees the exact Credits cost and the
+    // installer never pulls a paid bundle before entitlement is confirmed.
+    selectors = await resolveFreeCatalogSelectors();
+  }
+
+  // 3. Install via vercel-labs/skills. Use the namespaced form — that's how
   //    SKILL.md frontmatter declares skills in the index. Historical issue
   //    messages told users to pass `lovstudio/skills`; keep that as an alias
   //    for "install the whole catalog" so older copy-paste instructions work.
-  const selector = skillSelector(args.name);
-  const installAll = selector === "*";
-  console.log(`Installing ${installAll ? "all Lovstudio skills" : args.name} from ${GALLERY}...`);
+  console.log(`Installing ${installAll ? "all free Lovstudio skills" : args.name} from ${GALLERY}...`);
   const skillArgs = [
     "-y", SKILLS_NPX_SPEC, "add", GALLERY,
-    "--skill", selector,
+    "--skill", ...selectors,
   ];
   if (args.agent) skillArgs.push("-a", args.agent);
   if (args.global) skillArgs.push("--global");
@@ -184,7 +365,7 @@ async function addAction(rawArgs) {
     process.exit(installCode);
   }
 
-  // 3. Preflight deps from placeholder frontmatter. Only meaningful for
+  // 4. Preflight deps from placeholder frontmatter. Only meaningful for
   //    single global installs — project installs land in ./skills/ with no
   //    easy way to locate from here, and full-catalog installs would need to
   //    aggregate many frontmatters.
@@ -193,19 +374,11 @@ async function addAction(rawArgs) {
     if (fm) {
       const missing = preflightReport(args.name, fm.dependencies);
       const code = resolveMissing(missing, args.withDeps);
-      if (existsSync(join(globalSkillDir(args.name), "MANIFEST.enc.json")) && !args.key) {
-        console.log("\nThis is a paid skill (encrypted). If you haven't activated yet:");
-        console.log("  lovstudio license <your-key>");
-      }
       process.exit(code);
     }
   }
 
-  console.log(`\n✓ ${installAll ? "all Lovstudio skills" : args.name} installed.`);
-  if (!args.key) {
-    console.log(`  next: activate your license with`);
-    console.log(`        lovstudio license <your-key>`);
-  }
+  console.log(`\n✓ ${installAll ? "all free Lovstudio skills" : args.name} installed.`);
 }
 
 async function activateAction(rest) {
@@ -233,7 +406,7 @@ function printHelp() {
 
 Usage:
   lovstudio skills add <name> [options]        install a skill
-  lovstudio skills add skills [options]        install all Lovstudio skills
+  lovstudio skills add skills [options]        install all free Lovstudio skills
   lovstudio skills activate <key>              activate a license (alias of \`license <key>\`)
   lovstudio skills list                        list all Lovstudio skills
   lovstudio skills remove [<name>...]          uninstall
@@ -241,17 +414,19 @@ Usage:
   lovstudio skills update [<name>...]          update
 
 Options for \`add\`:
-  -k, --key <key>      license key. Activates before install (skip to activate later).
+  -k, --key <key>      legacy license key. Activates before install.
   -a, --agent <list>   target agent(s), comma-separated (see \`npx skills add --help\`)
   -g, --global         install globally into ~/.agents/skills/ and agent dirs (default)
       --project        install into ./skills/ for the current project
   -y, --yes            skip confirmation prompts
       --with-deps      auto-install missing runtime deps declared in SKILL.md
 
-\`add\` installs from ${GALLERY} (no need to type the gallery path). Passing
-\`skills\`, \`all\`, \`*\`, or \`${GALLERY}\` installs the full catalog. Single-skill
-installs read the skill's \`dependencies:\` frontmatter and run each \`check\`
-command. With --with-deps, missing ones are installed automatically.
+\`add\` installs from ${GALLERY} (no need to type the gallery path). Free Skills
+install directly. A paid Skill must have an encrypted bundle, then the command
+signs in and redeems its Credits before downloading. Passing \`skills\`, \`all\`,
+\`*\`, or \`${GALLERY}\` installs all free entries; paid entries are added one at a time after redemption. Single-skill installs read
+the Skill's \`dependencies:\` frontmatter and run each \`check\` command. With
+--with-deps, missing ones are installed automatically.
 `);
 }
 
