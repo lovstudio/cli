@@ -6,6 +6,22 @@ One CLI for Lovstudio users: install skills and activate license keys.
 npx lovstudio --help
 ```
 
+## Local apps
+
+Run a pnpm command in a configured local Lovstudio app without changing
+directories first:
+
+```bash
+npx lovstudio app vmux tauri dev
+```
+
+This resolves `vmux` to `~/lovstudio/coding/Vmux` and runs `pnpm tauri dev`
+with that directory as its working directory. List the built-in mappings with:
+
+```bash
+npx lovstudio app list
+```
+
 ## For end users
 
 ```bash

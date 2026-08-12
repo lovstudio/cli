@@ -3,6 +3,7 @@
   "version": "0.4.3",
   "description": "Lovstudio CLI — install free Skills directly and redeem paid Skills with Credits.",
   "type": "module",
+  "packageManager": "npm@11.17.0",
   "bin": {
     "lovstudio": "bin/lovstudio.mjs"
   },
@@ -15,8 +16,11 @@
     "node": ">=18"
   },
   "scripts": {
+    "changeset": "changeset",
     "start": "node ./bin/lovstudio.mjs",
-    "test:local": "node ./bin/lovstudio.mjs --help"
+    "test": "npm run test:local",
+    "test:local": "node ./bin/lovstudio.mjs --help",
+    "version-packages": "changeset version"
   },
   "keywords": [
     "lovstudio",
@@ -41,5 +45,8 @@
   "dependencies": {
     "undici": "^6.21.1",
     "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.0"
   }
 }

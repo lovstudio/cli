@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { appCommand } from "./commands/app/index.mjs";
 import { dnsCommand } from "./commands/dns/index.mjs";
 import { licenseCommand } from "./commands/license/index.mjs";
 import { skillsCommand } from "./commands/skills/index.mjs";
@@ -9,6 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Command registry. Add future commands here.
 const COMMANDS = {
+  app: appCommand,
   dns: dnsCommand,
   license: licenseCommand,
   skills: skillsCommand,
@@ -37,6 +39,7 @@ Global:
   -v, --version   show version
 
 Examples:
+  lovstudio app vmux tauri dev
   lovstudio license <your-key>
   lovstudio skills add skills -g -y
   lovstudio skills add wxmp-cracker --with-deps
