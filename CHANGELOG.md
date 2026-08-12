@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.4
+
+### Patch Changes
+
+- Add PATH-style local app discovery and persistent `app add`, `remove`, `path`, and `list` commands.
+
 ## 0.4.3
 
 - Add `lovstudio app <name> <command...>` for running pnpm commands inside mapped local app repositories, starting with `vmux` mapped to `~/lovstudio/coding/Vmux`.

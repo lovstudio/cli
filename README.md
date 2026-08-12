@@ -8,19 +8,36 @@ npx lovstudio --help
 
 ## Local apps
 
-Run a pnpm command in a configured local Lovstudio app without changing
-directories first:
+Run a pnpm command in a local app without changing directories first:
 
 ```bash
 npx lovstudio app vmux tauri dev
+npx lovstudio app ataru tauri dev
 ```
 
-This resolves `vmux` to `~/lovstudio/coding/Vmux` and runs `pnpm tauri dev`
-with that directory as its working directory. List the built-in mappings with:
+The CLI searches app roots in `LOVSTUDIO_APP_PATH`, using the same ordered,
+platform-specific delimiter as `PATH`. If the variable is unset, it searches
+`~/lovstudio/coding` and `~/projects`. Apps are recognized by directory name,
+`package.json.name`, and Tauri's `productName`.
 
 ```bash
+export LOVSTUDIO_APP_PATH="$HOME/work:$HOME/projects"
+npx lovstudio app path ataru
+```
+
+Explicit mappings override discovery and are stored in
+`~/.lovstudio/apps.json`:
+
+```bash
+npx lovstudio app add ataru ~/projects/lovcode
+npx lovstudio app path ataru
+npx lovstudio app remove ataru
 npx lovstudio app list
 ```
+
+`app add` also updates an existing mapping, and defaults its path to the current
+directory. The resolved command is executed as `pnpm <command...>` with the app
+directory as its working directory.
 
 ## For end users
 
