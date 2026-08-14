@@ -20,6 +20,10 @@ platform-specific delimiter as `PATH`. If the variable is unset, it searches
 `~/lovstudio/coding` and `~/projects`. Apps are recognized by directory name,
 `package.json.name`, and Tauri's `productName`.
 
+If multiple directories share the same app name, the CLI asks you to choose
+one and remembers that choice in `~/.lovstudio/apps.json`. Later commands reuse
+the remembered path without prompting again.
+
 ```bash
 export LOVSTUDIO_APP_PATH="$HOME/work:$HOME/projects"
 npx lovstudio app path ataru

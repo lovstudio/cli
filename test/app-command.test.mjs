@@ -21,10 +21,11 @@ async function createApp(path, { name, productName } = {}) {
   }
 }
 
-function run(args, { home, roots, cwd = repoRoot }) {
+function run(args, { home, roots, cwd = repoRoot, input }) {
   return spawnSync(process.execPath, [cli, ...args], {
     cwd,
     encoding: "utf8",
+    input,
     env: {
       ...process.env,
       LOVSTUDIO_HOME: home,
@@ -98,6 +99,35 @@ test("an explicit mapping takes precedence over auto-discovery", async () => {
   const resolved = run(["app", "path", "demo"], { home, roots: root });
   assert.equal(resolved.status, 0, resolved.stderr);
   assert.equal(resolved.stdout.trim(), await realpath(explicit));
+});
+
+test("an ambiguous app choice is prompted once and remembered", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-remember-choice-"));
+  const root = join(fixture, "projects");
+  const home = join(fixture, "home");
+  const exact = join(root, "ataru");
+  const variant = join(root, "ataru-index-throughput");
+  await createApp(exact, { name: "ataru", productName: "Ataru" });
+  await createApp(variant, { name: "ataru", productName: "Ataru" });
+
+  const selected = run(["app", "path", "ataru"], {
+    home,
+    roots: root,
+    input: "2\n",
+  });
+  assert.equal(selected.status, 0, selected.stderr);
+  assert.match(selected.stderr, /Multiple apps match 'ataru'/);
+  assert.match(selected.stderr, /selection will be remembered/);
+  assert.match(selected.stderr, /Remembered ataru ->/);
+  assert.equal(selected.stdout.trim(), await realpath(variant));
+
+  const registry = JSON.parse(await readFile(join(home, "apps.json"), "utf8"));
+  assert.equal(registry.ataru, await realpath(variant));
+
+  const remembered = run(["app", "path", "ataru"], { home, roots: root });
+  assert.equal(remembered.status, 0, remembered.stderr);
+  assert.doesNotMatch(remembered.stderr, /Multiple apps match/);
+  assert.equal(remembered.stdout.trim(), await realpath(variant));
 });
 
 test("LOVSTUDIO_APP_PATH uses PATH ordering", async () => {

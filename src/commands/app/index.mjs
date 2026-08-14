@@ -1,7 +1,9 @@
-import { delimiter } from "node:path";
+import { basename, delimiter } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { hasBin, runInherit } from "../../lib/exec.mjs";
 import {
   addAppMapping,
+  AmbiguousAppError,
   appRegistryPath,
   appSearchRoots,
   listApps,
@@ -40,6 +42,47 @@ function printSearchHelp(name) {
   console.error("or set LOVSTUDIO_APP_PATH to your app root directories");
 }
 
+async function chooseAmbiguousApp(error) {
+  console.error(`Multiple apps match '${error.appName}':`);
+  error.matches.forEach((app, index) => {
+    console.error(`  ${index + 1}) ${basename(app.path)}  ${app.path}`);
+  });
+
+  const prompt = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    while (true) {
+      let answer;
+      try {
+        answer = await prompt.question(
+          `Choose an app [1-${error.matches.length}] (selection will be remembered): `,
+        );
+      } catch {
+        throw error;
+      }
+      const choice = Number(answer.trim());
+      if (Number.isInteger(choice) && choice >= 1 && choice <= error.matches.length) {
+        return error.matches[choice - 1];
+      }
+      if (!process.stdin.isTTY && !answer.trim()) throw error;
+      console.error(`Enter a number from 1 to ${error.matches.length}.`);
+    }
+  } finally {
+    prompt.close();
+  }
+}
+
+async function resolveAppForCommand(name) {
+  try {
+    return await resolveApp(name);
+  } catch (error) {
+    if (!(error instanceof AmbiguousAppError)) throw error;
+    const selected = await chooseAmbiguousApp(error);
+    const remembered = await addAppMapping(name, selected.path);
+    console.error(`Remembered ${remembered.name} -> ${remembered.path}`);
+    return remembered;
+  }
+}
+
 async function addAction(args) {
   const [name, path = "."] = args;
   if (!name) {
@@ -62,8 +105,13 @@ async function removeAction(args) {
     process.exit(2);
   }
   console.log(`removed explicit mapping: ${name}`);
-  const fallback = await resolveApp(name);
-  if (fallback) console.log(`still auto-discovered at ${fallback.path}`);
+  try {
+    const fallback = await resolveApp(name);
+    if (fallback) console.log(`still auto-discovered at ${fallback.path}`);
+  } catch (error) {
+    if (!(error instanceof AmbiguousAppError)) throw error;
+    console.log("multiple auto-discovered apps remain; the next command will ask you to choose");
+  }
 }
 
 async function pathAction(args) {
@@ -72,7 +120,7 @@ async function pathAction(args) {
     console.error("usage: lovstudio app path <name>");
     process.exit(2);
   }
-  const app = await resolveApp(name);
+  const app = await resolveAppForCommand(name);
   if (!app) {
     printSearchHelp(name);
     process.exit(2);
@@ -118,7 +166,7 @@ async function runAppCommand(args) {
     process.exit(2);
   }
 
-  const app = await resolveApp(name);
+  const app = await resolveAppForCommand(name);
   if (!app) {
     printSearchHelp(name);
     process.exit(2);

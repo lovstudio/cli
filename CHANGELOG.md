@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.5
+
+### Patch Changes
+
+- Prompt for ambiguous local apps and remember the selected directory for later commands.
+
 ## 0.4.4
 
 ### Patch Changes

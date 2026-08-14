@@ -7,6 +7,17 @@ const DEFAULT_ROOT_PARTS = [
   ["projects"],
 ];
 
+export class AmbiguousAppError extends Error {
+  constructor(name, root, matches) {
+    const paths = matches.map((app) => app.path).join(", ");
+    super(`app '${name}' is ambiguous in ${root}: ${paths}`);
+    this.name = "AmbiguousAppError";
+    this.appName = String(name);
+    this.root = root;
+    this.matches = matches;
+  }
+}
+
 function expandHome(value) {
   const input = String(value).trim();
   if (input === "~") return homedir();
@@ -152,8 +163,7 @@ export async function resolveApp(name) {
     const matches = (await rootCandidates(root)).filter((app) => app.aliases.includes(key));
     if (matches.length === 1) return { ...matches[0], name: key, source: "auto" };
     if (matches.length > 1) {
-      const paths = matches.map((app) => app.path).join(", ");
-      throw new Error(`app '${name}' is ambiguous in ${root}: ${paths}`);
+      throw new AmbiguousAppError(name, root, matches);
     }
   }
   return null;
