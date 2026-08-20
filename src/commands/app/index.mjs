@@ -12,7 +12,7 @@ import {
 } from "./resolver.mjs";
 
 function printHelp() {
-  console.log(`Run pnpm commands inside local apps
+  console.log(`Run commands inside local apps with their package manager
 
 Usage:
   lovstudio app <name> <command...>
@@ -175,13 +175,15 @@ async function runAppCommand(args) {
     console.error(`mapped app directory is unavailable: ${app.path}`);
     process.exit(1);
   }
-  if (!hasBin("pnpm")) {
-    console.error("pnpm is required but was not found in PATH");
+  const packageManager = app.packageManager || "pnpm";
+  if (!hasBin(packageManager)) {
+    console.error(`${packageManager} is required but was not found in PATH`);
     process.exit(127);
   }
 
   if (app.source === "auto") console.log(`Discovered ${name} at ${app.path}`);
-  const code = runInherit("pnpm", command, { cwd: app.path });
+  if (packageManager !== "pnpm") console.error(`Using ${packageManager} for ${name}`);
+  const code = runInherit(packageManager, command, { cwd: app.path });
   process.exit(code);
 }
 

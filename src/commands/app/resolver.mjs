@@ -7,6 +7,16 @@ const DEFAULT_ROOT_PARTS = [
   ["projects"],
 ];
 
+const KNOWN_PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun", "cnpm"]);
+
+const LOCKFILE_MANAGERS = [
+  ["bun.lock", "bun"],
+  ["bun.lockb", "bun"],
+  ["pnpm-lock.yaml", "pnpm"],
+  ["yarn.lock", "yarn"],
+  ["package-lock.json", "npm"],
+];
+
 export class AmbiguousAppError extends Error {
   constructor(name, root, matches) {
     const paths = matches.map((app) => app.path).join(", ");
@@ -73,6 +83,29 @@ async function writeAppMappings(mappings) {
   await rename(temporary, file);
 }
 
+// Parse the `packageManager` field ("bun@1.3.11", "pnpm@9.0.0+sha224...") down to
+// the manager name. Returns null for unknown managers so we can fall back.
+export function parsePackageManager(spec) {
+  if (typeof spec !== "string") return null;
+  const at = spec.indexOf("@");
+  const name = at > 0 ? spec.slice(0, at) : spec;
+  return KNOWN_PACKAGE_MANAGERS.has(name) ? name : null;
+}
+
+async function detectPackageManager(directory, pkg) {
+  const declared = parsePackageManager(pkg?.packageManager);
+  if (declared) return declared;
+  for (const [lockfile, manager] of LOCKFILE_MANAGERS) {
+    try {
+      await stat(join(directory, lockfile));
+      return manager;
+    } catch {
+      // keep looking
+    }
+  }
+  return null;
+}
+
 async function readJson(path) {
   try {
     return JSON.parse(await readFile(path, "utf8"));
@@ -104,6 +137,7 @@ export async function inspectApp(path) {
     name: aliases[0] || normalizeAppName(basename(directory)),
     path: directory,
     aliases,
+    packageManager: await detectPackageManager(directory, pkg),
   };
 }
 
