@@ -198,6 +198,24 @@ test("falls back to the lockfile package manager when none is declared", async (
   assert.match(resolved.stdout, /bun:dev/);
 });
 
+test("drops a redundant package-manager prefix from the command", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-pm-prefix-"));
+  const binDir = await createMockBin(join(fixture, "bin"), "bun");
+  const root = join(fixture, "projects");
+  await createAppWithPm(join(root, "wxmp-cracker-app"), "wxmp-cracker-app", {
+    packageManager: "bun@1.3.11",
+  });
+
+  const resolved = run(["app", "wxmp-cracker-app", "bun", "run", "dev"], {
+    home: join(fixture, "home"),
+    roots: root,
+    path: binDir,
+  });
+  assert.equal(resolved.status, 0, resolved.stderr);
+  assert.match(resolved.stdout, /bun:run dev/);
+  assert.match(resolved.stderr, /dropped redundant 'bun'/);
+});
+
 test("defaults to pnpm when no package manager is declared or detected", async () => {
   const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-pm-default-"));
   const binDir = await createMockBin(join(fixture, "bin"), "pnpm");

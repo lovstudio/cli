@@ -181,14 +181,25 @@ async function runAppCommand(args) {
     process.exit(127);
   }
 
+  let runCommand = command;
+  if (runCommand[0] === packageManager) {
+    runCommand = runCommand.slice(1);
+    console.error(`note: dropped redundant '${packageManager}' — it is added automatically`);
+  }
+  if (runCommand.length === 0) {
+    console.error(`missing command for app: ${name}`);
+    console.error(`example: lovstudio app ${name} tauri dev`);
+    process.exit(2);
+  }
+
   if (app.source === "auto") console.log(`Discovered ${name} at ${app.path}`);
   if (packageManager !== "pnpm") console.error(`Using ${packageManager} for ${name}`);
-  const code = runInherit(packageManager, command, { cwd: app.path });
+  const code = runInherit(packageManager, runCommand, { cwd: app.path });
   process.exit(code);
 }
 
 export const appCommand = {
-  summary: "discover and run pnpm commands inside local apps",
+  summary: "discover and run commands inside local apps",
 
   async run(args) {
     try {

@@ -12,7 +12,9 @@ Run a command in a local app without changing directories first. The CLI runs
 the app's own package manager — read from `packageManager` in its `package.json`
 (npm / pnpm / yarn / bun), falling back to its lockfile (`bun.lock` → bun,
 `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, `package-lock.json` → npm), and
-defaulting to `pnpm` when nothing indicates otherwise:
+defaulting to `pnpm` when nothing indicates otherwise. The package manager is
+added automatically, so don't prefix the command with it — write `tauri dev`,
+not `bun tauri dev`:
 
 ```bash
 npx lovstudio app vmux tauri dev
