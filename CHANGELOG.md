@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.6
+
+### Patch Changes
+
+- 8108e46: Run `lovstudio app` commands with the app's own package manager — detected from the `packageManager` field or lockfile (`bun`, `yarn`, `npm`) — instead of always invoking pnpm, which rejects non-pnpm projects like `bun@1.3.11`.
+
 ## 0.4.5
 
 ### Patch Changes
