@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { accountCommand } from "./commands/account/index.mjs";
 import { appCommand } from "./commands/app/index.mjs";
 import { dnsCommand } from "./commands/dns/index.mjs";
 import { licenseCommand } from "./commands/license/index.mjs";
@@ -10,6 +11,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Command registry. Add future commands here.
 const COMMANDS = {
+  account: accountCommand,
   app: appCommand,
   dns: dnsCommand,
   license: licenseCommand,
@@ -26,7 +28,7 @@ function printRootHelp(version) {
   const cmds = Object.keys(COMMANDS)
     .map((n) => `  ${n.padEnd(10)} ${COMMANDS[n].summary}`)
     .join("\n");
-  console.log(`lovstudio v${version} — install skills and activate licenses
+  console.log(`lovstudio v${version} — connect your account and install skills
 
 Usage:
   lovstudio <command> [subcommand] [options]
@@ -39,6 +41,7 @@ Global:
   -v, --version   show version
 
 Examples:
+  lovstudio account connect
   lovstudio app vmux tauri dev
   lovstudio license <your-key>
   lovstudio skills add skills -g -y

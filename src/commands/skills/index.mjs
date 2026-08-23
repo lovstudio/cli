@@ -7,6 +7,7 @@ import { parse as parseYaml } from "yaml";
 import { hasBin, runCapture, runInherit } from "../../lib/exec.mjs";
 import { hfetch } from "../../lib/fetch.mjs";
 import { runHelper } from "../../lib/helper.mjs";
+import { AccountError, requireAccountSession } from "../../lib/account.mjs";
 
 const GALLERY = "lovstudio/skills";
 const SKILLS_NPX_SPEC = "skills@latest";
@@ -43,36 +44,17 @@ function ensureNpx() {
   process.exit(127);
 }
 
-function authFilePath() {
-  const root = process.env.LOVSTUDIO_HOME || join(homedir(), ".lovstudio");
-  return join(root, "auth.yml");
-}
-
-async function readAccountSession() {
-  try {
-    return parseYaml(await readFile(authFilePath(), "utf8")) || null;
-  } catch {
-    return null;
-  }
-}
-
 async function requireAccountToken() {
-  let session = await readAccountSession();
-  const expiresAt = Number(session?.expires_at || 0);
-  if (!session?.access_token || expiresAt <= Math.floor(Date.now() / 1000) + 60) {
-    console.log("\n需要登录 Lovstudio 账户，正在打开登录确认页…");
-    const code = runHelper(["login"]);
-    if (code !== 0) {
-      console.error(`登录未完成（退出码 ${code}），未安装付费 Skill。`);
-      process.exit(code || 1);
-    }
-    session = await readAccountSession();
-  }
-  if (!session?.access_token) {
-    console.error("登录状态未找到，未安装付费 Skill。请重新运行并完成登录。 ");
+  console.log("\n正在确认本机连接的 Lovstudio 网站账号…");
+  try {
+    const session = await requireAccountSession({ clientName: "Lovstudio CLI / Skill 安装" });
+    console.log(`✓ 网站账号：${session.email || session.user_id || "已连接"}`);
+    return session.access_token;
+  } catch (error) {
+    const detail = error instanceof AccountError ? error.message : String(error);
+    console.error(`网站账号连接未完成：${detail}`);
     process.exit(1);
   }
-  return session.access_token;
 }
 
 async function loadCatalog() {
@@ -148,9 +130,12 @@ async function resolveFreeCatalogSelectors() {
   return selectors;
 }
 
-async function fetchRedemptionPrice(name) {
+async function fetchRedemptionPrice(name, token) {
   const url = `${WEB_URL}/api/skills/price?name=${encodeURIComponent(name)}`;
-  const response = await hfetch(url, { signal: AbortSignal.timeout(15_000) });
+  const response = await hfetch(url, {
+    headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || typeof body.price_credits !== "number") {
     throw new Error(body.error || `price request failed: HTTP ${response.status}`);
@@ -180,20 +165,23 @@ async function redeemPaidSkill(skill, yes) {
     process.exit(1);
   }
 
+  const token = await requireAccountToken();
   let price;
   try {
-    price = await fetchRedemptionPrice(skill.name);
+    price = await fetchRedemptionPrice(skill.name, token);
   } catch (error) {
     console.error(`读取「${skill.name}」的 Credits 兑换价失败：${error instanceof Error ? error.message : String(error)}`);
     console.error("价格未确认前不会安装付费 Skill。");
     process.exit(1);
   }
+  if (price.owned === true) {
+    console.log(`✓ 网站账号已拥有「${skill.name}」，直接安装，不会再次确认或扣除 Credits。`);
+    return;
+  }
   if (!(await confirmPurchase(skill.name, price, yes))) {
     console.log("已取消兑换，未安装付费 Skill。");
     process.exit(0);
   }
-
-  const token = await requireAccountToken();
   const response = await hfetch(`${WEB_URL}/api/skills/purchase`, {
     method: "POST",
     headers: {

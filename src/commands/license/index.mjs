@@ -1,14 +1,18 @@
 import { runHelper } from "../../lib/helper.mjs";
+import { accountCommand } from "../account/index.mjs";
 
 const DIRECT_SUBS = new Set([
   "activate",
   "status",
-  "login",
-  "logout",
-  "whoami",
   "deactivate",
   "heartbeat",
 ]);
+
+const ACCOUNT_ALIASES = {
+  login: "connect",
+  logout: "disconnect",
+  whoami: "status",
+};
 
 const ADMIN_ISSUE_FLAGS_VALUED = new Set([
   "--skills", "--skill", "--user", "--max-devices",
@@ -53,9 +57,9 @@ Usage:
   lovstudio license <key>              activate a license key (alias of \`activate\`)
   lovstudio license activate <key>
   lovstudio license status             show local license state
-  lovstudio license login              sign in via browser (device flow)
-  lovstudio license logout             forget the local session
-  lovstudio license whoami             show signed-in email
+  lovstudio license login              legacy alias: account connect
+  lovstudio license logout             legacy alias: account disconnect
+  lovstudio license whoami             legacy alias: account status
   lovstudio license deactivate [<key>] [--all]
   lovstudio license issue [options]    (admin) mint a new license key
 
@@ -94,6 +98,10 @@ export const licenseCommand = {
 
     if (first === "issue") {
       return runLicenseIssue(rest);
+    }
+
+    if (ACCOUNT_ALIASES[first]) {
+      return accountCommand.run([ACCOUNT_ALIASES[first], ...rest]);
     }
 
     if (DIRECT_SUBS.has(first)) {
