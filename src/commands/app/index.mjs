@@ -1,8 +1,9 @@
-import { basename, delimiter } from "node:path";
+import { basename, delimiter, dirname } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { hasBin, runInherit } from "../../lib/exec.mjs";
 import {
   addAppMapping,
+  addAppSearchRoot,
   AmbiguousAppError,
   appRegistryPath,
   appSearchRoots,
@@ -23,6 +24,7 @@ Usage:
 
 Discovery:
   LOVSTUDIO_APP_PATH uses ${delimiter === ":" ? "colon" : "semicolon"}-separated app roots, like PATH.
+  app add can remember the project's parent directory as a persistent search root.
   Apps are matched by directory name, package.json name, or Tauri productName.
 
 Examples:
@@ -34,12 +36,43 @@ Examples:
 `);
 }
 
-function printSearchHelp(name) {
+async function printSearchHelp(name) {
   console.error(`could not resolve app: ${name}`);
   console.error("searched app roots:");
-  for (const root of appSearchRoots()) console.error(`  ${root}`);
+  for (const root of await appSearchRoots()) console.error(`  ${root}`);
   console.error(`add it explicitly: lovstudio app add ${name} /path/to/app`);
   console.error("or set LOVSTUDIO_APP_PATH to your app root directories");
+}
+
+async function offerPersistentSearchRoot(app) {
+  const root = dirname(app.path);
+  if ((await appSearchRoots()).includes(root)) return;
+
+  const prompt = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    while (true) {
+      let answer;
+      try {
+        answer = await prompt.question(
+          `Add ${root} as a persistent app search root so sibling apps can be discovered automatically? [Y/n] `,
+        );
+      } catch {
+        return;
+      }
+
+      const choice = answer.trim().toLowerCase();
+      if (!choice || choice === "y" || choice === "yes") {
+        const result = await addAppSearchRoot(root);
+        console.log(`${result.added ? "added" : "already configured"} app search root: ${result.path}`);
+        return;
+      }
+      if (choice === "n" || choice === "no") return;
+      if (!process.stdin.isTTY) return;
+      console.error("Enter yes or no.");
+    }
+  } finally {
+    prompt.close();
+  }
 }
 
 async function chooseAmbiguousApp(error) {
@@ -91,6 +124,7 @@ async function addAction(args) {
   }
   const app = await addAppMapping(name, path);
   console.log(`${app.replaced ? "updated" : "added"} ${app.name} -> ${app.path}`);
+  await offerPersistentSearchRoot(app);
 }
 
 async function removeAction(args) {
@@ -122,7 +156,7 @@ async function pathAction(args) {
   }
   const app = await resolveAppForCommand(name);
   if (!app) {
-    printSearchHelp(name);
+    await printSearchHelp(name);
     process.exit(2);
   }
   if (app.source === "missing") {
@@ -144,7 +178,7 @@ async function listAction() {
     }
   }
   console.log(`\nMappings: ${appRegistryPath()}`);
-  console.log(`Search roots: ${appSearchRoots().join(delimiter)}`);
+  console.log(`Search roots: ${(await appSearchRoots()).join(delimiter)}`);
 }
 
 async function runAppCommand(args) {
@@ -168,7 +202,7 @@ async function runAppCommand(args) {
 
   const app = await resolveAppForCommand(name);
   if (!app) {
-    printSearchHelp(name);
+    await printSearchHelp(name);
     process.exit(2);
   }
   if (app.source === "missing") {

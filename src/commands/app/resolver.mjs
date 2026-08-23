@@ -44,14 +44,6 @@ export function normalizeAppName(value) {
     .replace(/^-+|-+$/g, "");
 }
 
-export function appSearchRoots() {
-  const configured = process.env.LOVSTUDIO_APP_PATH;
-  const roots = configured !== undefined
-    ? configured.split(delimiter).filter(Boolean).map(expandHome)
-    : DEFAULT_ROOT_PARTS.map((parts) => join(homedir(), ...parts));
-  return [...new Set(roots)];
-}
-
 export function appRegistryPath() {
   const root = process.env.LOVSTUDIO_HOME
     ? expandHome(process.env.LOVSTUDIO_HOME)
@@ -59,28 +51,70 @@ export function appRegistryPath() {
   return join(root, "apps.json");
 }
 
-export async function readAppMappings() {
+async function readAppRegistry() {
   try {
     const data = JSON.parse(await readFile(appRegistryPath(), "utf8"));
-    const mappings = data?.apps && typeof data.apps === "object" ? data.apps : data;
-    return Object.fromEntries(
+    const structured = Boolean(
+      (data?.apps && typeof data.apps === "object") || Array.isArray(data?.roots),
+    );
+    const mappings = structured ? data.apps : data;
+    const apps = Object.fromEntries(
       Object.entries(mappings || {})
         .filter(([, value]) => typeof value === "string")
         .map(([name, value]) => [normalizeAppName(name), expandHome(value)]),
     );
+    const roots = (structured && Array.isArray(data.roots) ? data.roots : [])
+      .filter((value) => typeof value === "string" && value.trim())
+      .map(expandHome);
+    return { apps, roots: [...new Set(roots)] };
   } catch (error) {
-    if (error?.code === "ENOENT") return {};
-    throw new Error(`cannot read app mappings: ${error.message}`);
+    if (error?.code === "ENOENT") return { apps: {}, roots: [] };
+    throw new Error(`cannot read app registry: ${error.message}`);
   }
 }
 
-async function writeAppMappings(mappings) {
+async function writeAppRegistry({ apps, roots }) {
   const file = appRegistryPath();
-  const sorted = Object.fromEntries(Object.entries(mappings).sort(([a], [b]) => a.localeCompare(b)));
+  const sortedApps = Object.fromEntries(
+    Object.entries(apps).sort(([a], [b]) => a.localeCompare(b)),
+  );
+  const registry = roots.length > 0 ? { apps: sortedApps, roots } : sortedApps;
   await mkdir(dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(sorted, null, 2)}\n`, { mode: 0o600 });
+  await writeFile(temporary, `${JSON.stringify(registry, null, 2)}\n`, { mode: 0o600 });
   await rename(temporary, file);
+}
+
+export async function readAppMappings() {
+  return (await readAppRegistry()).apps;
+}
+
+export async function appSearchRoots() {
+  const configured = process.env.LOVSTUDIO_APP_PATH;
+  const environmentRoots = configured === undefined
+    ? []
+    : configured.split(delimiter).filter(Boolean).map(expandHome);
+  const defaultRoots = configured === undefined
+    ? DEFAULT_ROOT_PARTS.map((parts) => join(homedir(), ...parts))
+    : [];
+  const { roots: persistentRoots } = await readAppRegistry();
+  return [...new Set([...environmentRoots, ...persistentRoots, ...defaultRoots])];
+}
+
+export async function addAppSearchRoot(path) {
+  let root;
+  try {
+    root = await realpath(expandHome(path));
+    if (!(await stat(root)).isDirectory()) throw new Error("not a directory");
+  } catch {
+    throw new Error(`not a directory: ${expandHome(path)}`);
+  }
+
+  const registry = await readAppRegistry();
+  if (registry.roots.includes(root)) return { path: root, added: false };
+  registry.roots.push(root);
+  await writeAppRegistry(registry);
+  return { path: root, added: true };
 }
 
 // Parse the `packageManager` field ("bun@1.3.11", "pnpm@9.0.0+sha224...") down to
@@ -167,7 +201,7 @@ export async function discoverApps() {
   const seenPaths = new Set();
   const seenNames = new Set();
 
-  for (const root of appSearchRoots()) {
+  for (const root of await appSearchRoots()) {
     for (const app of await rootCandidates(root)) {
       if (seenPaths.has(app.path) || seenNames.has(app.name)) continue;
       seenPaths.add(app.path);
@@ -193,7 +227,7 @@ export async function resolveApp(name) {
     };
   }
 
-  for (const root of appSearchRoots()) {
+  for (const root of await appSearchRoots()) {
     const matches = (await rootCandidates(root)).filter((app) => app.aliases.includes(key));
     if (matches.length === 1) return { ...matches[0], name: key, source: "auto" };
     if (matches.length > 1) {
@@ -230,18 +264,18 @@ export async function addAppMapping(name, path) {
   if (!key) throw new Error("app name cannot be empty");
   const app = await inspectApp(path);
   if (!app) throw new Error(`not an app directory (package.json required): ${expandHome(path)}`);
-  const mappings = await readAppMappings();
-  const replaced = Object.hasOwn(mappings, key);
-  mappings[key] = app.path;
-  await writeAppMappings(mappings);
+  const registry = await readAppRegistry();
+  const replaced = Object.hasOwn(registry.apps, key);
+  registry.apps[key] = app.path;
+  await writeAppRegistry(registry);
   return { ...app, name: key, source: "mapped", replaced };
 }
 
 export async function removeAppMapping(name) {
   const key = normalizeAppName(name);
-  const mappings = await readAppMappings();
-  if (!mappings[key]) return false;
-  delete mappings[key];
-  await writeAppMappings(mappings);
+  const registry = await readAppRegistry();
+  if (!registry.apps[key]) return false;
+  delete registry.apps[key];
+  await writeAppRegistry(registry);
   return true;
 }

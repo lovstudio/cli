@@ -22,9 +22,10 @@ npx lovstudio app ataru tauri dev
 ```
 
 The CLI searches app roots in `LOVSTUDIO_APP_PATH`, using the same ordered,
-platform-specific delimiter as `PATH`. If the variable is unset, it searches
-`~/lovstudio/coding` and `~/projects`. Apps are recognized by directory name,
-`package.json.name`, and Tauri's `productName`.
+platform-specific delimiter as `PATH`. It then searches roots persisted by
+`app add`. If the variable is unset, it also searches `~/lovstudio/coding` and
+`~/projects`. Apps are recognized by directory name, `package.json.name`, and
+Tauri's `productName`.
 
 If multiple directories share the same app name, the CLI asks you to choose
 one and remembers that choice in `~/.lovstudio/apps.json`. Later commands reuse
@@ -44,6 +45,12 @@ npx lovstudio app path ataru
 npx lovstudio app remove ataru
 npx lovstudio app list
 ```
+
+After finding a valid project, `app add` asks whether to persist the project's
+parent directory as a search root. Accepting lets sibling projects be discovered
+automatically by later commands. The same `~/.lovstudio/apps.json` file stores
+both mappings and these roots, while remaining compatible with the previous
+mapping-only format.
 
 `app add` also updates an existing mapping, and defaults its path to the current
 directory. The resolved command is executed as `<package-manager> <command...>`

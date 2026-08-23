@@ -81,9 +81,14 @@ test("add, path, and remove manage explicit app mappings", async () => {
   await mkdir(emptyRoot, { recursive: true });
   await createApp(app, { name: "demo-project", productName: "Demo" });
 
-  const added = run(["app", "add", "demo", app], { home, roots: emptyRoot });
+  const added = run(["app", "add", "demo", app], {
+    home,
+    roots: emptyRoot,
+    input: "n\n",
+  });
   assert.equal(added.status, 0, added.stderr);
   assert.match(added.stdout, /added demo ->/);
+  assert.match(added.stderr, /persistent app search root/);
 
   const registry = JSON.parse(await readFile(join(home, "apps.json"), "utf8"));
   assert.equal(registry.demo, await realpath(app));
@@ -102,6 +107,50 @@ test("add, path, and remove manage explicit app mappings", async () => {
   assert.match(missing.stderr, /lovstudio app add demo/);
 });
 
+test("app add can persist the project's parent as a search root", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-persistent-root-"));
+  const repositoryRoot = join(fixture, "yoda", "repositories");
+  const gtd = join(repositoryRoot, "gtd");
+  const sibling = join(repositoryRoot, "future-app");
+  const emptyRoot = join(fixture, "empty");
+  const home = join(fixture, "home");
+  await mkdir(emptyRoot, { recursive: true });
+  await createApp(gtd, { name: "gtd" });
+  await createApp(sibling, { name: "future-app" });
+
+  const added = run(["app", "add", "gtd", gtd], {
+    home,
+    roots: emptyRoot,
+    input: "\n",
+  });
+  assert.equal(added.status, 0, added.stderr);
+  assert.match(added.stderr, /Add .*repositories as a persistent app search root/);
+  assert.match(added.stdout, /added app search root:/);
+
+  const registry = JSON.parse(await readFile(join(home, "apps.json"), "utf8"));
+  assert.equal(registry.apps.gtd, await realpath(gtd));
+  assert.deepEqual(registry.roots, [await realpath(repositoryRoot)]);
+
+  const resolvedSibling = run(["app", "path", "future-app"], {
+    home,
+    roots: emptyRoot,
+  });
+  assert.equal(resolvedSibling.status, 0, resolvedSibling.stderr);
+  assert.equal(resolvedSibling.stdout.trim(), await realpath(sibling));
+
+  const removedMapping = run(["app", "remove", "gtd"], { home, roots: emptyRoot });
+  assert.equal(removedMapping.status, 0, removedMapping.stderr);
+  assert.match(removedMapping.stdout, /still auto-discovered/);
+
+  const registryAfterRemove = JSON.parse(await readFile(join(home, "apps.json"), "utf8"));
+  assert.deepEqual(registryAfterRemove.apps, {});
+  assert.deepEqual(registryAfterRemove.roots, [await realpath(repositoryRoot)]);
+
+  const listed = run(["app", "list"], { home, roots: emptyRoot });
+  assert.equal(listed.status, 0, listed.stderr);
+  assert.match(listed.stdout, new RegExp(`Search roots:.*${await realpath(repositoryRoot)}`));
+});
+
 test("an explicit mapping takes precedence over auto-discovery", async () => {
   const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-precedence-"));
   const root = join(fixture, "projects");
@@ -111,7 +160,11 @@ test("an explicit mapping takes precedence over auto-discovery", async () => {
   await createApp(automatic, { name: "demo", productName: "Demo" });
   await createApp(explicit, { name: "demo-explicit", productName: "Demo Explicit" });
 
-  const added = run(["app", "add", "demo", explicit], { home, roots: root });
+  const added = run(["app", "add", "demo", explicit], {
+    home,
+    roots: root,
+    input: "n\n",
+  });
   assert.equal(added.status, 0, added.stderr);
 
   const resolved = run(["app", "path", "demo"], { home, roots: root });
