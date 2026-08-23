@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.8
+
+### Patch Changes
+
+- f134c1c: Let `lovstudio app add` persist the project's parent directory as an app search root, so sibling projects are auto-discovered by future commands.
+
 ## 0.4.7
 
 ### Patch Changes
