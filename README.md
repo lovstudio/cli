@@ -59,6 +59,9 @@ with the app directory as its working directory.
 ## For end users
 
 ```bash
+# Connect this device once to the same account used on lovstudio.ai
+npx lovstudio account connect
+
 # Install a free Skill directly
 npx lovstudio skills add any2pdf
 
@@ -78,16 +81,21 @@ npx lovstudio skills list
 
 `skills add` reads the unified `lovstudio/skills` catalog before installation.
 Free Skills install directly. Paid Skills must have an encrypted bundle; the
-CLI signs in to Lovstudio, confirms the current Credits price, completes the
-redemption, and only then downloads the bundle. The encrypted placeholder
-uses the same account entitlement at runtime, so plaintext Skill code is not
-written to disk.
+CLI connects this device to the user's Lovstudio website account once. It then
+checks that account's current ownership before doing anything else: a Skill
+already purchased on the website installs immediately without another Credits
+confirmation or purchase request. For a Skill not yet owned, the CLI confirms
+the current Credits price and completes the redemption before downloading the
+encrypted bundle. Sessions refresh silently, and the encrypted placeholder
+uses the same account entitlement at runtime, so no activation key is needed
+and plaintext Skill code is not written to disk.
 
 The command also resolves the Skill's `dependencies:` frontmatter and runs each
 `check` command. With `--with-deps`, missing ones are installed automatically
 via their declared `install` command.
 
 Under the hood:
+- `account connect` → browser device confirmation on `lovstudio.ai`; the shared session is stored owner-only under `~/.lovstudio/` for local Agent tools
 - `skills add <name>` → resolves the product slug in `skills.yaml`, then passes its exact `runtime_name` to `npx -y skills@latest add lovstudio/skills --skill <runtime_name>` (vercel-labs/skills)
 - `skills add skills` → resolves the unified catalog and passes every free Skill's exact `runtime_name`
 - `license *` → `uvx lovstudio-skill-helper *` (pinned version)

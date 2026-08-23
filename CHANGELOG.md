@@ -1,5 +1,12 @@
 # lovstudio
 
+## 0.4.10
+
+### Patch Changes
+
+- Add a website-account bridge for local Agents. A device is confirmed once through `lovstudio.ai`, sessions refresh silently, and paid Skill installs check existing website ownership before showing any Credits confirmation or purchase mutation.
+- Add `lovstudio account connect|status|disconnect`; keep `license login|whoami|logout` as backward-compatible aliases.
+
 ## 0.4.9
 
 ### Patch Changes
