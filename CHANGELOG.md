@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.11
+
+### Patch Changes
+
+- 5cdf94b: Allow `lovstudio app add <path>` to register an app directly, inferring its name from the app metadata.
+
 ## 0.4.10
 
 ### Patch Changes
