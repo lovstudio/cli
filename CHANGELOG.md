@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.9
+
+### Patch Changes
+
+- Resolve every catalog product slug through its declared `runtime_name` before calling the underlying Skills installer, so current `lov-*`, `sgc-*`, unprefixed, and legacy runtime IDs install correctly. Catalog and historical CLI aliases remain accepted.
+
 ## 0.4.8
 
 ### Patch Changes

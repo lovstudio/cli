@@ -10,7 +10,8 @@ import { runHelper } from "../../lib/helper.mjs";
 
 const GALLERY = "lovstudio/skills";
 const SKILLS_NPX_SPEC = "skills@latest";
-const SKILL_PREFIX = "lovstudio-";
+const SKILL_PREFIX = "lov-";
+const LEGACY_SKILL_PREFIX = "lovstudio-";
 const ALL_SKILLS_NAMES = new Set(["*", "all", "skills", GALLERY]);
 const CATALOG_URL = process.env.LOVSTUDIO_SKILLS_CATALOG_URL ||
   `https://raw.githubusercontent.com/${GALLERY}/main/skills.yaml`;
@@ -20,17 +21,20 @@ function isAllSkillsName(name) {
   return ALL_SKILLS_NAMES.has(String(name).trim().toLowerCase());
 }
 
-function skillSelector(name) {
+export function skillSelector(name) {
   const value = String(name).trim();
   if (isAllSkillsName(value)) return "*";
   if (value.startsWith(SKILL_PREFIX)) return value;
+  if (value.startsWith(LEGACY_SKILL_PREFIX)) {
+    return `${SKILL_PREFIX}${value.slice(LEGACY_SKILL_PREFIX.length)}`;
+  }
   if (value.startsWith("lovstudio:")) return `${SKILL_PREFIX}${value.slice("lovstudio:".length)}`;
   return `${SKILL_PREFIX}${value}`;
 }
 
 // Where `npx skills add -g` writes the canonical bundle (vercel-labs/skills convention).
-function globalSkillDir(name) {
-  return join(homedir(), ".agents", "skills", skillSelector(name));
+function globalSkillDir(runtimeName) {
+  return join(homedir(), ".agents", "skills", runtimeName);
 }
 
 function ensureNpx() {
@@ -83,11 +87,27 @@ async function loadCatalog() {
   return Array.isArray(data.skills) ? data.skills.filter((skill) => !skill.test) : [];
 }
 
-function canonicalSkillName(name) {
+export function canonicalSkillName(name) {
   const value = String(name).trim();
   if (value.startsWith(SKILL_PREFIX)) return value.slice(SKILL_PREFIX.length);
+  if (value.startsWith(LEGACY_SKILL_PREFIX)) return value.slice(LEGACY_SKILL_PREFIX.length);
   if (value.startsWith("lovstudio:")) return value.slice("lovstudio:".length);
   return value;
+}
+
+export function catalogSkillSelector(skill) {
+  const runtimeName = String(skill?.runtime_name || "").trim();
+  return runtimeName || skillSelector(skill?.name || "");
+}
+
+export function findCatalogSkill(catalog, name) {
+  const requested = String(name).trim();
+  const canonical = canonicalSkillName(requested);
+  return catalog.find((entry) =>
+    entry?.name === requested ||
+    entry?.name === canonical ||
+    catalogSkillSelector(entry) === requested
+  );
 }
 
 async function resolveCatalogSkill(name) {
@@ -99,10 +119,9 @@ async function resolveCatalogSkill(name) {
     console.error("为保护付费 Skill，目录不可用时不会继续安装。稍后重试即可。");
     process.exit(1);
   }
-  const canonical = canonicalSkillName(name);
-  const skill = catalog.find((entry) => entry?.name === canonical);
+  const skill = findCatalogSkill(catalog, name);
   if (!skill) {
-    console.error(`目录中没有找到 Skill：${canonical}`);
+    console.error(`目录中没有找到 Skill：${canonicalSkillName(name)}`);
     console.error(`查看可用 Skill：npx lovstudio skills list`);
     process.exit(2);
   }
@@ -120,7 +139,7 @@ async function resolveFreeCatalogSelectors() {
   }
   const selectors = catalog
     .filter((skill) => !skill?.paid)
-    .map((skill) => skillSelector(skill.name))
+    .map(catalogSkillSelector)
     .filter(Boolean);
   if (!selectors.length) {
     console.error("统一目录中没有可直接安装的免费 Skill。");
@@ -205,8 +224,8 @@ async function redeemPaidSkill(skill, yes) {
 // Frontmatter / dependency preflight
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function readSkillFrontmatter(name) {
-  const path = join(globalSkillDir(name), "SKILL.md");
+async function readSkillFrontmatter(runtimeName) {
+  const path = join(globalSkillDir(runtimeName), "SKILL.md");
   if (!existsSync(path)) return null;
   const md = await readFile(path, "utf8");
   const m = md.match(/^---\s*\n([\s\S]*?)\n---/);
@@ -332,12 +351,12 @@ async function addAction(rawArgs) {
   // 2. Resolve the unified catalog before installing a single Skill. This is
   //    also the paid gate: purchase/login completes before npx downloads the
   //    encrypted bundle.
-  const selector = skillSelector(args.name);
-  const installAll = selector === "*";
-  let selectors = [selector];
+  const installAll = isAllSkillsName(args.name);
+  let selectors;
   if (!installAll) {
     const skill = await resolveCatalogSkill(args.name);
     if (skill.paid) await redeemPaidSkill(skill, args.yes);
+    selectors = [catalogSkillSelector(skill)];
   } else {
     // The aggregate command is intentionally free-only. Paid Skills must be
     // redeemed one at a time so the user sees the exact Credits cost and the
@@ -370,7 +389,7 @@ async function addAction(rawArgs) {
   //    easy way to locate from here, and full-catalog installs would need to
   //    aggregate many frontmatters.
   if (args.global && !installAll) {
-    const fm = await readSkillFrontmatter(args.name);
+    const fm = await readSkillFrontmatter(selectors[0]);
     if (fm) {
       const missing = preflightReport(args.name, fm.dependencies);
       const code = resolveMissing(missing, args.withDeps);

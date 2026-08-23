@@ -88,8 +88,8 @@ The command also resolves the Skill's `dependencies:` frontmatter and runs each
 via their declared `install` command.
 
 Under the hood:
-- `skills add <name>` → `npx -y skills@latest add lovstudio/skills --skill lovstudio-<name>` (vercel-labs/skills)
-- `skills add skills` → resolves the unified catalog and passes all free `lovstudio-<name>` selectors
+- `skills add <name>` → resolves the product slug in `skills.yaml`, then passes its exact `runtime_name` to `npx -y skills@latest add lovstudio/skills --skill <runtime_name>` (vercel-labs/skills)
+- `skills add skills` → resolves the unified catalog and passes every free Skill's exact `runtime_name`
 - `license *` → `uvx lovstudio-skill-helper *` (pinned version)
 
 ## For ops

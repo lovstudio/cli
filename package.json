@@ -1,6 +1,6 @@
 {
   "name": "lovstudio",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "description": "Lovstudio CLI — install free Skills directly and redeem paid Skills with Credits.",
   "type": "module",
   "packageManager": "npm@11.17.0",
