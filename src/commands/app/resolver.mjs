@@ -264,11 +264,21 @@ export async function addAppMapping(name, path) {
   if (!key) throw new Error("app name cannot be empty");
   const app = await inspectApp(path);
   if (!app) throw new Error(`not an app directory (package.json required): ${expandHome(path)}`);
+  return writeAppMapping(key, app);
+}
+
+export async function addAppFromPath(path) {
+  const app = await inspectApp(path);
+  if (!app) throw new Error(`not an app directory (package.json required): ${expandHome(path)}`);
+  return writeAppMapping(app.name, app);
+}
+
+async function writeAppMapping(name, app) {
   const registry = await readAppRegistry();
-  const replaced = Object.hasOwn(registry.apps, key);
-  registry.apps[key] = app.path;
+  const replaced = Object.hasOwn(registry.apps, name);
+  registry.apps[name] = app.path;
   await writeAppRegistry(registry);
-  return { ...app, name: key, source: "mapped", replaced };
+  return { ...app, name, source: "mapped", replaced };
 }
 
 export async function removeAppMapping(name) {

@@ -1,12 +1,14 @@
-import { basename, delimiter, dirname } from "node:path";
+import { basename, delimiter, dirname, isAbsolute } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { hasBin, runInherit } from "../../lib/exec.mjs";
 import {
   addAppMapping,
+  addAppFromPath,
   addAppSearchRoot,
   AmbiguousAppError,
   appRegistryPath,
   appSearchRoots,
+  inspectApp,
   listApps,
   removeAppMapping,
   resolveApp,
@@ -17,6 +19,7 @@ function printHelp() {
 
 Usage:
   lovstudio app <name> <command...>
+  lovstudio app add <path>
   lovstudio app add <name> [path]
   lovstudio app remove <name>
   lovstudio app path <name>
@@ -29,6 +32,7 @@ Discovery:
 
 Examples:
   lovstudio app ataru tauri dev
+  lovstudio app add ~/projects/lovcode
   lovstudio app add ataru ~/projects/lovcode
   lovstudio app path ataru
   lovstudio app remove ataru
@@ -117,12 +121,25 @@ async function resolveAppForCommand(name) {
 }
 
 async function addAction(args) {
-  const [name, path = "."] = args;
+  const [name, path] = args;
   if (!name) {
-    console.error("usage: lovstudio app add <name> [path]");
+    console.error("usage: lovstudio app add <path> | <name> [path]");
     process.exit(2);
   }
-  const app = await addAppMapping(name, path);
+
+  let app;
+  if (path !== undefined) {
+    app = await addAppMapping(name, path);
+  } else {
+    const detected = await inspectApp(name);
+    const explicitPath = isAbsolute(name)
+      || name === "."
+      || name === ".."
+      || /^(?:~|\.{1,2})[\\/]/.test(name);
+    app = detected || explicitPath
+      ? await addAppFromPath(name)
+      : await addAppMapping(name, ".");
+  }
   console.log(`${app.replaced ? "updated" : "added"} ${app.name} -> ${app.path}`);
   await offerPersistentSearchRoot(app);
 }

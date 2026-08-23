@@ -40,6 +40,7 @@ Explicit mappings override discovery and are stored in
 `~/.lovstudio/apps.json`:
 
 ```bash
+npx lovstudio app add ~/projects/lovcode
 npx lovstudio app add ataru ~/projects/lovcode
 npx lovstudio app path ataru
 npx lovstudio app remove ataru
@@ -52,9 +53,11 @@ automatically by later commands. The same `~/.lovstudio/apps.json` file stores
 both mappings and these roots, while remaining compatible with the previous
 mapping-only format.
 
-`app add` also updates an existing mapping, and defaults its path to the current
-directory. The resolved command is executed as `<package-manager> <command...>`
-with the app directory as its working directory.
+`app add <path>` infers the mapping name from the app's Tauri `productName`,
+`package.json.name`, or directory name. Use `app add <name> [path]` to choose a
+custom name; when its path is omitted, it defaults to the current directory.
+The resolved command is executed as `<package-manager> <command...>` with the
+app directory as its working directory.
 
 ## For end users
 

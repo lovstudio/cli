@@ -107,6 +107,65 @@ test("add, path, and remove manage explicit app mappings", async () => {
   assert.match(missing.stderr, /lovstudio app add demo/);
 });
 
+test("app add accepts an app path and infers its primary name", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-add-path-"));
+  const app = join(fixture, "outside", "demo-project");
+  const home = join(fixture, "home");
+  const emptyRoot = join(fixture, "empty");
+  await mkdir(emptyRoot, { recursive: true });
+  await createApp(app, { name: "demo-package", productName: "Demo Product" });
+
+  const added = run(["app", "add", app], {
+    home,
+    roots: emptyRoot,
+    input: "n\n",
+  });
+  assert.equal(added.status, 0, added.stderr);
+  assert.match(added.stdout, /added demo-product ->/);
+
+  const registry = JSON.parse(await readFile(join(home, "apps.json"), "utf8"));
+  assert.equal(registry["demo-product"], await realpath(app));
+});
+
+test("app add reports an invalid explicit path instead of mapping the current app", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-add-invalid-path-"));
+  const currentApp = join(fixture, "current-app");
+  const missingApp = join(fixture, "missing-app");
+  const home = join(fixture, "home");
+  const emptyRoot = join(fixture, "empty");
+  await mkdir(emptyRoot, { recursive: true });
+  await createApp(currentApp, { name: "current-app" });
+
+  const added = run(["app", "add", missingApp], {
+    cwd: currentApp,
+    home,
+    roots: emptyRoot,
+  });
+  assert.equal(added.status, 1);
+  assert.match(added.stderr, new RegExp(`not an app directory.*${missingApp}`));
+});
+
+test("app add with only a custom name still maps the current directory", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-add-name-"));
+  const app = join(fixture, "current-app");
+  const home = join(fixture, "home");
+  const emptyRoot = join(fixture, "empty");
+  await mkdir(emptyRoot, { recursive: true });
+  await createApp(app, { name: "package-name" });
+
+  const added = run(["app", "add", "custom-name"], {
+    cwd: app,
+    home,
+    roots: emptyRoot,
+    input: "n\n",
+  });
+  assert.equal(added.status, 0, added.stderr);
+  assert.match(added.stdout, /added custom-name ->/);
+
+  const registry = JSON.parse(await readFile(join(home, "apps.json"), "utf8"));
+  assert.equal(registry["custom-name"], await realpath(app));
+});
+
 test("app add can persist the project's parent as a search root", async () => {
   const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-persistent-root-"));
   const repositoryRoot = join(fixture, "yoda", "repositories");
