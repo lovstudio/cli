@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.12
+
+### Patch Changes
+
+- 8d99ff8: Add `lovstudio find-app <name>` as a top-level shortcut for resolving and printing a local app path.
+
 ## 0.4.11
 
 ### Patch Changes
