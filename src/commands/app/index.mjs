@@ -24,6 +24,7 @@ Usage:
   lovstudio app remove <name>
   lovstudio app path <name>
   lovstudio app list
+  lovstudio find-app <name>
 
 Discovery:
   LOVSTUDIO_APP_PATH uses ${delimiter === ":" ? "colon" : "semicolon"}-separated app roots, like PATH.
@@ -35,8 +36,23 @@ Examples:
   lovstudio app add ~/projects/lovcode
   lovstudio app add ataru ~/projects/lovcode
   lovstudio app path ataru
+  lovstudio find-app oneshot
   lovstudio app remove ataru
   lovstudio app list
+`);
+}
+
+function printFindAppHelp() {
+  console.log(`Find the path to a local app
+
+Usage:
+  lovstudio find-app <name>
+
+Apps are matched by directory name, package.json name, or Tauri productName.
+This command is an alias for \`lovstudio app path <name>\`.
+
+Example:
+  lovstudio find-app oneshot
 `);
 }
 
@@ -165,10 +181,10 @@ async function removeAction(args) {
   }
 }
 
-async function pathAction(args) {
+async function pathAction(args, usage = "lovstudio app path <name>") {
   const [name] = args;
   if (!name) {
-    console.error("usage: lovstudio app path <name>");
+    console.error(`usage: ${usage}`);
     process.exit(2);
   }
   const app = await resolveAppForCommand(name);
@@ -255,6 +271,29 @@ export const appCommand = {
   async run(args) {
     try {
       await runAppCommand(args);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  },
+};
+
+export const findAppCommand = {
+  summary: "print the path to a local app",
+
+  async run(args) {
+    if (
+      args.length === 0
+      || args[0] === "-h"
+      || args[0] === "--help"
+      || args[0] === "help"
+    ) {
+      printFindAppHelp();
+      return;
+    }
+
+    try {
+      await pathAction(args, "lovstudio find-app <name>");
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       process.exit(1);

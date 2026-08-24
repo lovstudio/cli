@@ -73,6 +73,45 @@ test("discovers an app by Tauri productName from LOVSTUDIO_APP_PATH", async () =
   assert.match(listed.stdout, /ataru\s+.*lovcode\s+\[auto\]/);
 });
 
+test("find-app resolves a local app from the top level", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-find-app-"));
+  const root = join(fixture, "projects");
+  const oneshot = join(root, "oneshot");
+  await createApp(oneshot, { name: "oneshot", productName: "OneShot" });
+
+  const resolved = run(["find-app", "oneshot"], {
+    home: join(fixture, "home"),
+    roots: root,
+  });
+  assert.equal(resolved.status, 0, resolved.stderr);
+  assert.equal(resolved.stdout.trim(), await realpath(oneshot));
+});
+
+test("find-app is documented in root and command help", () => {
+  const rootHelp = run(["--help"], {});
+  assert.equal(rootHelp.status, 0, rootHelp.stderr);
+  assert.match(rootHelp.stdout, /find-app\s+print the path to a local app/);
+
+  const commandHelp = run(["find-app", "--help"], {});
+  assert.equal(commandHelp.status, 0, commandHelp.stderr);
+  assert.match(commandHelp.stdout, /lovstudio find-app <name>/);
+  assert.match(commandHelp.stdout, /alias for `lovstudio app path <name>`/);
+});
+
+test("find-app reports app discovery guidance when no app matches", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-find-app-missing-"));
+  const emptyRoot = join(fixture, "empty");
+  await mkdir(emptyRoot, { recursive: true });
+
+  const missing = run(["find-app", "missing-app"], {
+    home: join(fixture, "home"),
+    roots: emptyRoot,
+  });
+  assert.equal(missing.status, 2);
+  assert.match(missing.stderr, /could not resolve app: missing-app/);
+  assert.match(missing.stderr, /lovstudio app add missing-app/);
+});
+
 test("add, path, and remove manage explicit app mappings", async () => {
   const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-mapping-"));
   const app = join(fixture, "outside", "demo-project");

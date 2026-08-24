@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { accountCommand } from "./commands/account/index.mjs";
-import { appCommand } from "./commands/app/index.mjs";
+import { appCommand, findAppCommand } from "./commands/app/index.mjs";
 import { dnsCommand } from "./commands/dns/index.mjs";
 import { licenseCommand } from "./commands/license/index.mjs";
 import { skillsCommand } from "./commands/skills/index.mjs";
@@ -14,6 +14,7 @@ const COMMANDS = {
   account: accountCommand,
   app: appCommand,
   dns: dnsCommand,
+  "find-app": findAppCommand,
   license: licenseCommand,
   skills: skillsCommand,
 };
@@ -43,6 +44,7 @@ Global:
 Examples:
   lovstudio account connect
   lovstudio app vmux tauri dev
+  lovstudio find-app oneshot
   lovstudio license <your-key>
   lovstudio skills add skills -g -y
   lovstudio skills add wxmp-cracker --with-deps

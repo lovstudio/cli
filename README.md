@@ -21,6 +21,15 @@ npx lovstudio app vmux tauri dev
 npx lovstudio app ataru tauri dev
 ```
 
+Find an app and print its absolute path with the top-level `find-app` command:
+
+```bash
+npx lovstudio find-app oneshot
+```
+
+`find-app <name>` is a shortcut for `app path <name>` and uses the same app
+discovery and remembered mappings described below.
+
 The CLI searches app roots in `LOVSTUDIO_APP_PATH`, using the same ordered,
 platform-specific delimiter as `PATH`. It then searches roots persisted by
 `app add`. If the variable is unset, it also searches `~/lovstudio/coding` and
@@ -33,6 +42,7 @@ the remembered path without prompting again.
 
 ```bash
 export LOVSTUDIO_APP_PATH="$HOME/work:$HOME/projects"
+npx lovstudio find-app ataru
 npx lovstudio app path ataru
 ```
 
