@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.15
+
+### Patch Changes
+
+- c182f4f: Render unfocused tmux pane titles in a high-contrast light cyan that remains distinct from the focused pane highlight.
+
 ## 0.4.14
 
 ### Patch Changes
