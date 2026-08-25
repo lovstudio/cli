@@ -21,7 +21,7 @@ async function createApp(path, { name, productName } = {}) {
   }
 }
 
-function run(args, { home, roots, cwd = repoRoot, input, path }) {
+function run(args, { home, roots, cwd = repoRoot, input, path, env = {} }) {
   return spawnSync(process.execPath, [cli, ...args], {
     cwd,
     encoding: "utf8",
@@ -30,7 +30,10 @@ function run(args, { home, roots, cwd = repoRoot, input, path }) {
       ...process.env,
       LOVSTUDIO_HOME: home,
       LOVSTUDIO_APP_PATH: roots,
+      TMUX: "",
+      TMUX_PANE: "",
       ...(path ? { PATH: `${path}${delimiter}${process.env.PATH}` } : {}),
+      ...env,
     },
   });
 }
@@ -48,6 +51,24 @@ async function createMockBin(binDir, name) {
   await mkdir(binDir, { recursive: true });
   const bin = join(binDir, name);
   await writeFile(bin, "#!/bin/sh\necho \"$(basename $0):$*\"\n");
+  await chmod(bin, 0o755);
+  return binDir;
+}
+
+async function createMockTmux(binDir) {
+  await mkdir(binDir, { recursive: true });
+  const bin = join(binDir, "tmux");
+  await writeFile(bin, `#!/bin/sh
+{
+  for arg in "$@"; do printf '[%s]' "$arg"; done
+  printf '\\n'
+} >> "$TMUX_TEST_LOG"
+if [ "$1" = "display-message" ]; then
+  printf '%s\\n' "$TMUX_TEST_ORIGINAL_TITLE"
+elif [ "$1" = "show-options" ]; then
+  printf '%s\\n' "$TMUX_TEST_BORDER_STATUS"
+fi
+`);
   await chmod(bin, 0o755);
   return binDir;
 }
@@ -380,4 +401,72 @@ test("defaults to pnpm when no package manager is declared or detected", async (
   });
   assert.equal(resolved.status, 0, resolved.stderr);
   assert.match(resolved.stdout, /pnpm:dev/);
+});
+
+test("labels a tmux pane while an app command runs and restores its original title", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-tmux-title-"));
+  const binDir = join(fixture, "bin");
+  await createMockBin(binDir, "pnpm");
+  await createMockTmux(binDir);
+  const root = join(fixture, "projects");
+  await createApp(join(root, "lumos"), { name: "lumos", productName: "Lumos" });
+  const log = join(fixture, "tmux.log");
+
+  const resolved = run(["app", "lumos", "dev"], {
+    home: join(fixture, "home"),
+    roots: root,
+    path: binDir,
+    env: {
+      TMUX: "/tmp/tmux-test/default,1,0",
+      TMUX_PANE: "%7",
+      TMUX_TEST_LOG: log,
+      TMUX_TEST_ORIGINAL_TITLE: "original shell",
+      TMUX_TEST_BORDER_STATUS: "off",
+    },
+  });
+  assert.equal(resolved.status, 0, resolved.stderr);
+
+  const calls = await readFile(log, "utf8");
+  assert.match(calls, /\[select-pane\]\[-t\]\[%7\]\[-T\]\[Lumos · dev\]/);
+  assert.match(
+    calls,
+    /\[set-option\]\[-w\]\[-t\]\[%7\]\[pane-border-status\]\[top\]/,
+  );
+  assert.ok(calls.includes(
+    "[set-option][-w][-t][%7][pane-border-format]"
+      + "[#{?pane_active,#[reverse],#[fg=default]} #{pane_index}: #{pane_title} #[default]]",
+  ));
+  assert.match(calls, /\[show-options\]\[-wAv\]/);
+  assert.match(calls, /\[select-pane\]\[-t\]\[%7\]\[-T\]\[original shell\]\s*$/);
+});
+
+test("restores the tmux pane title when the app command fails", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-tmux-failure-"));
+  const binDir = join(fixture, "bin");
+  await createMockTmux(binDir);
+  const pnpm = join(binDir, "pnpm");
+  await writeFile(pnpm, "#!/bin/sh\nexit 23\n");
+  await chmod(pnpm, 0o755);
+  const root = join(fixture, "projects");
+  await createApp(join(root, "lumos"), { name: "lumos", productName: "Lumos" });
+  const log = join(fixture, "tmux.log");
+
+  const resolved = run(["app", "lumos", "dev"], {
+    home: join(fixture, "home"),
+    roots: root,
+    path: binDir,
+    env: {
+      TMUX: "/tmp/tmux-test/default,1,0",
+      TMUX_PANE: "%8",
+      TMUX_TEST_LOG: log,
+      TMUX_TEST_ORIGINAL_TITLE: "before failure",
+      TMUX_TEST_BORDER_STATUS: "top",
+    },
+  });
+  assert.equal(resolved.status, 23, resolved.stderr);
+
+  const calls = await readFile(log, "utf8");
+  assert.doesNotMatch(calls, /\[set-option\].*\[pane-border-status\]/);
+  assert.match(calls, /\[pane-border-format\]/);
+  assert.match(calls, /\[select-pane\]\[-t\]\[%8\]\[-T\]\[before failure\]\s*$/);
 });

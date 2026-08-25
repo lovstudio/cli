@@ -1,6 +1,7 @@
 import { basename, delimiter, dirname, isAbsolute } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { hasBin, runInherit } from "../../lib/exec.mjs";
+import { hasBin, runInheritAsync } from "../../lib/exec.mjs";
+import { formatTmuxPaneTitle, setTmuxPaneTitle } from "../../lib/tmux-pane-title.mjs";
 import {
   addAppMapping,
   addAppFromPath,
@@ -261,7 +262,19 @@ async function runAppCommand(args) {
 
   if (app.source === "auto") console.log(`Discovered ${name} at ${app.path}`);
   if (packageManager !== "pnpm") console.error(`Using ${packageManager} for ${name}`);
-  const code = runInherit(packageManager, runCommand, { cwd: app.path });
+  const paneTitle = formatTmuxPaneTitle(app.displayName || name, runCommand);
+  const restorePaneTitle = setTmuxPaneTitle(paneTitle);
+  let code;
+  try {
+    code = await runInheritAsync(
+      packageManager,
+      runCommand,
+      { cwd: app.path },
+      { onSignal: restorePaneTitle },
+    );
+  } finally {
+    restorePaneTitle();
+  }
   process.exit(code);
 }
 

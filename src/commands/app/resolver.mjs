@@ -161,14 +161,17 @@ export async function inspectApp(path) {
   if (!pkg || typeof pkg !== "object") return null;
 
   const tauri = await readJson(join(directory, "src-tauri", "tauri.conf.json"));
-  const names = [tauri?.productName, pkg.name, basename(directory)]
+  const displayNames = [tauri?.productName, pkg.name, basename(directory)]
     .filter((name) => typeof name === "string" && name.trim())
+    .map((name) => name.trim());
+  const names = displayNames
     .map(normalizeAppName)
     .filter(Boolean);
   const aliases = [...new Set(names)];
 
   return {
     name: aliases[0] || normalizeAppName(basename(directory)),
+    displayName: displayNames[0] || basename(directory),
     path: directory,
     aliases,
     packageManager: await detectPackageManager(directory, pkg),
