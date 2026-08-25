@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.16
+
+### Patch Changes
+
+- 895290b: Prefix tmux pane numbers with a hash so labels read like `#1: app · command`.
+
 ## 0.4.15
 
 ### Patch Changes
