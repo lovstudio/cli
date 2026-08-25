@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.17
+
+### Patch Changes
+
+- 5d2448a: Zero-pad tmux pane numbers to two digits and left-align pane labels for a stable scan column.
+
 ## 0.4.16
 
 ### Patch Changes
