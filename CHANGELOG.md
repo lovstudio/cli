@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.14
+
+### Patch Changes
+
+- d27b9d8: Render unfocused tmux pane titles in an explicit high-contrast light gray so dark themes cannot make them unreadable.
+
 ## 0.4.13
 
 ### Patch Changes
