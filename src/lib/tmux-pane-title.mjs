@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 const TMUX_TIMEOUT_MS = 1_000;
 const MAX_TITLE_LENGTH = 96;
 const VISIBLE_PANE_BORDER_FORMAT =
-  '#{?pane_active,#[reverse],#[fg=colour117]} ###{pane_index}: #{pane_title} #[default]';
+  '#[align=left]#{?pane_active,#[reverse],#[fg=colour117]}## #{?#{e|<:#{pane_index},10},0,}#{pane_index}: #{pane_title}#[default]';
 
 function runTmux(args, { capture = false } = {}) {
   try {

@@ -70,10 +70,11 @@ The resolved command is executed as `<package-manager> <command...>` with the
 app directory as its working directory.
 
 Inside tmux, the running pane is automatically titled with the app and command
-(for example, `Lumos · dev`). If pane borders are hidden, the CLI enables the
-top border for the current tmux window and applies a readable inactive-pane
-label, so every pane title remains visible without focusing it. The pane's
-previous title is restored when the command exits.
+(for example, `Lumos · dev`). Pane labels are left-aligned and use a stable
+two-digit prefix such as `# 01: Lumos · dev`. If pane borders are hidden, the CLI
+enables the top border for the current tmux window and applies a readable
+inactive-pane label, so every pane title remains visible without focusing it.
+The pane's previous title is restored when the command exits.
 
 ## For end users
 
