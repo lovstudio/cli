@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.13
+
+### Patch Changes
+
+- bff708e: Automatically label the current tmux pane while `lovstudio app` runs, keep every pane title visibly labeled without focusing it, and restore the previous title on exit or interruption.
+
 ## 0.4.12
 
 ### Patch Changes
