@@ -434,7 +434,7 @@ test("labels a tmux pane while an app command runs and restores its original tit
   );
   assert.ok(calls.includes(
     "[set-option][-w][-t][%7][pane-border-format]"
-      + "[#{?pane_active,#[reverse],#[fg=colour252]} #{pane_index}: #{pane_title} #[default]]",
+      + "[#{?pane_active,#[reverse],#[fg=colour117]} #{pane_index}: #{pane_title} #[default]]",
   ));
   assert.match(calls, /\[show-options\]\[-wAv\]/);
   assert.match(calls, /\[select-pane\]\[-t\]\[%7\]\[-T\]\[original shell\]\s*$/);
