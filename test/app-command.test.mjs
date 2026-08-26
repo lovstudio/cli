@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,7 +64,10 @@ async function createMockTmux(binDir) {
   printf '\\n'
 } >> "$TMUX_TEST_LOG"
 if [ "$1" = "display-message" ]; then
-  printf '%s\\n' "$TMUX_TEST_ORIGINAL_TITLE"
+  case "$5" in
+    '#{pane_pipe}') printf '%s\\n' "\${TMUX_TEST_PANE_PIPE:-0}" ;;
+    *) printf '%s\\n' "$TMUX_TEST_ORIGINAL_TITLE" ;;
+  esac
 elif [ "$1" = "show-options" ]; then
   printf '%s\\n' "$TMUX_TEST_BORDER_STATUS"
 fi
@@ -411,9 +414,10 @@ test("labels a tmux pane while an app command runs and restores its original tit
   const root = join(fixture, "projects");
   await createApp(join(root, "lumos"), { name: "lumos", productName: "Lumos" });
   const log = join(fixture, "tmux.log");
+  const home = join(fixture, "home");
 
   const resolved = run(["app", "lumos", "dev"], {
-    home: join(fixture, "home"),
+    home,
     roots: root,
     path: binDir,
     env: {
@@ -425,9 +429,17 @@ test("labels a tmux pane while an app command runs and restores its original tit
     },
   });
   assert.equal(resolved.status, 0, resolved.stderr);
+  assert.match(resolved.stderr, /Log: .*logs\/apps\/lumos\/.*-dev\.log/);
+
+  const appLogs = await readdir(join(home, "logs", "apps", "lumos"));
+  assert.equal(appLogs.length, 1);
+  const appLog = join(home, "logs", "apps", "lumos", appLogs[0]);
 
   const calls = await readFile(log, "utf8");
-  assert.match(calls, /\[select-pane\]\[-t\]\[%7\]\[-T\]\[Lumos · dev\]/);
+  assert.ok(calls.includes(`[pipe-pane][-O][-t][%7][cat >> '${appLog}']`));
+  assert.ok(calls.includes(
+    `[select-pane][-t][%7][-T][Lumos · dev · log ${appLog}]`,
+  ));
   assert.match(
     calls,
     /\[set-option\]\[-w\]\[-t\]\[%7\]\[pane-border-status\]\[top\]/,
@@ -437,7 +449,41 @@ test("labels a tmux pane while an app command runs and restores its original tit
       + "[#[align=left]#{?pane_active,#[reverse],#[fg=colour117]}## #{?#{e|<:#{pane_index},10},0,}#{pane_index}: #{pane_title}#[default]]",
   ));
   assert.match(calls, /\[show-options\]\[-wAv\]/);
+  assert.match(calls, /\[pipe-pane\]\[-t\]\[%7\]/);
   assert.match(calls, /\[select-pane\]\[-t\]\[%7\]\[-T\]\[original shell\]\s*$/);
+});
+
+test("preserves an existing tmux pane pipe instead of replacing it", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-tmux-existing-pipe-"));
+  const binDir = join(fixture, "bin");
+  await createMockBin(binDir, "pnpm");
+  await createMockTmux(binDir);
+  const root = join(fixture, "projects");
+  await createApp(join(root, "lumos"), { name: "lumos", productName: "Lumos" });
+  const home = join(fixture, "home");
+  const tmuxLog = join(fixture, "tmux.log");
+
+  const resolved = run(["app", "lumos", "dev"], {
+    home,
+    roots: root,
+    path: binDir,
+    env: {
+      TMUX: "/tmp/tmux-test/default,1,0",
+      TMUX_PANE: "%9",
+      TMUX_TEST_LOG: tmuxLog,
+      TMUX_TEST_ORIGINAL_TITLE: "existing pipe",
+      TMUX_TEST_BORDER_STATUS: "top",
+      TMUX_TEST_PANE_PIPE: "1",
+    },
+  });
+  assert.equal(resolved.status, 0, resolved.stderr);
+  assert.doesNotMatch(resolved.stderr, /Log:/);
+  assert.match(resolved.stderr, /could not attach an app log/);
+  assert.deepEqual(await readdir(join(home, "logs", "apps", "lumos")), []);
+
+  const calls = await readFile(tmuxLog, "utf8");
+  assert.doesNotMatch(calls, /\[pipe-pane\]/);
+  assert.match(calls, /\[select-pane\]\[-t\]\[%9\]\[-T\]\[Lumos · dev\]/);
 });
 
 test("restores the tmux pane title when the app command fails", async () => {

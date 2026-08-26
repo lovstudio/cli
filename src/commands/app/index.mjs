@@ -1,7 +1,13 @@
+import { unlink } from "node:fs/promises";
 import { basename, delimiter, dirname, isAbsolute } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { createAppRunLog, displayAppRunLogPath } from "../../lib/app-run-log.mjs";
 import { hasBin, runInheritAsync } from "../../lib/exec.mjs";
-import { formatTmuxPaneTitle, setTmuxPaneTitle } from "../../lib/tmux-pane-title.mjs";
+import {
+  formatTmuxPaneTitle,
+  setTmuxPaneTitle,
+  startTmuxPaneLog,
+} from "../../lib/tmux-pane-title.mjs";
 import {
   addAppMapping,
   addAppFromPath,
@@ -260,9 +266,34 @@ async function runAppCommand(args) {
     process.exit(2);
   }
 
+  let logPath = null;
+  let stopPaneLog = null;
+  if (process.env.TMUX && process.env.TMUX_PANE) {
+    try {
+      logPath = await createAppRunLog(app.displayName || name, runCommand);
+      stopPaneLog = startTmuxPaneLog(logPath);
+      if (!stopPaneLog) {
+        await unlink(logPath).catch(() => {});
+        console.error(
+          "warning: could not attach an app log to this tmux pane; command will continue",
+        );
+        logPath = null;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`warning: app log unavailable: ${message}`);
+      logPath = null;
+    }
+  }
+
   if (app.source === "auto") console.log(`Discovered ${name} at ${app.path}`);
   if (packageManager !== "pnpm") console.error(`Using ${packageManager} for ${name}`);
-  const paneTitle = formatTmuxPaneTitle(app.displayName || name, runCommand);
+  if (logPath) console.error(`Log: ${logPath}`);
+  const paneTitle = formatTmuxPaneTitle(
+    app.displayName || name,
+    runCommand,
+    logPath ? displayAppRunLogPath(logPath) : null,
+  );
   const restorePaneTitle = setTmuxPaneTitle(paneTitle);
   let code;
   try {
@@ -273,6 +304,7 @@ async function runAppCommand(args) {
       { onSignal: restorePaneTitle },
     );
   } finally {
+    stopPaneLog?.();
     restorePaneTitle();
   }
   process.exit(code);

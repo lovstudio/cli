@@ -19,19 +19,54 @@ function runTmux(args, { capture = false } = {}) {
   }
 }
 
-function cleanTitlePart(value) {
+function cleanTitlePart(value, maxLength = MAX_TITLE_LENGTH) {
   const cleaned = String(value)
     .replace(/[\r\n\t]+/g, " ")
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return Array.from(cleaned).slice(0, MAX_TITLE_LENGTH).join("");
+  return maxLength === null
+    ? cleaned
+    : Array.from(cleaned).slice(0, maxLength).join("");
 }
 
-export function formatTmuxPaneTitle(appName, command) {
+export function formatTmuxPaneTitle(appName, command, logPath) {
   const name = cleanTitlePart(appName);
   const invocation = cleanTitlePart(command.join(" "));
-  return [name, invocation].filter(Boolean).join(" · ");
+  // Keep the log address complete so it can be copied from `#{pane_title}` even
+  // when the visible border has to clip a long custom LOVSTUDIO_HOME path.
+  const log = cleanTitlePart(logPath ? `log ${logPath}` : "", null);
+  return [name, invocation, log].filter(Boolean).join(" · ");
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
+}
+
+// Copy pane output to a file without putting a pipe between the app and its TTY.
+// Return null when tmux is unavailable or the pane already has a user-managed pipe.
+export function startTmuxPaneLog(path, env = process.env) {
+  const pane = env.TMUX_PANE;
+  if (!env.TMUX || !pane || !path) return null;
+
+  const existingPipe = runTmux([
+    "display-message",
+    "-p",
+    "-t",
+    pane,
+    "#{pane_pipe}",
+  ], { capture: true });
+  if (existingPipe === null || existingPipe === "1") return null;
+
+  const command = `cat >> ${shellQuote(path)}`;
+  if (runTmux(["pipe-pane", "-O", "-t", pane, command]) === null) return null;
+
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    runTmux(["pipe-pane", "-t", pane]);
+  };
 }
 
 // Set a visible title for the current tmux pane and return a restore callback.
