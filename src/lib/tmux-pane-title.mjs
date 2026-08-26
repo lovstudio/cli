@@ -35,7 +35,7 @@ export function formatTmuxPaneTitle(appName, command, logPath) {
   const invocation = cleanTitlePart(command.join(" "));
   // Keep the log address complete so it can be copied from `#{pane_title}` even
   // when the visible border has to clip a long custom LOVSTUDIO_HOME path.
-  const log = cleanTitlePart(logPath ? `log ${logPath}` : "", null);
+  const log = cleanTitlePart(logPath || "", null);
   return [name, invocation, log].filter(Boolean).join(" · ");
 }
 

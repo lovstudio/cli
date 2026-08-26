@@ -438,7 +438,7 @@ test("labels a tmux pane while an app command runs and restores its original tit
   const calls = await readFile(log, "utf8");
   assert.ok(calls.includes(`[pipe-pane][-O][-t][%7][cat >> '${appLog}']`));
   assert.ok(calls.includes(
-    `[select-pane][-t][%7][-T][Lumos · dev · log ${appLog}]`,
+    `[select-pane][-t][%7][-T][Lumos · dev · ${appLog}]`,
   ));
   assert.match(
     calls,

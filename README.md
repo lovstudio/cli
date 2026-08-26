@@ -75,7 +75,7 @@ pane output to `~/.lovstudio/logs/apps/<app>/` without taking the app off its
 TTY, and prints the absolute log path when the run begins. An existing
 user-managed tmux pane pipe is preserved instead of replaced. Pane labels are
 left-aligned and use a stable two-digit prefix such as
-`# 01: Lumos · dev · log ~/.lovstudio/logs/apps/lumos/...`. If pane borders are hidden, the CLI
+`# 01: Lumos · dev · ~/.lovstudio/logs/apps/lumos/...`. If pane borders are hidden, the CLI
 enables the top border for the current tmux window and applies a readable
 inactive-pane label, so every pane title remains visible without focusing it.
 The pane's previous title is restored when the command exits.
