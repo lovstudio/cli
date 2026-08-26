@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.19
+
+### Patch Changes
+
+- 8e23d9a: Remove the redundant `log` label before the run log path in tmux pane titles.
+
 ## 0.4.18
 
 ### Patch Changes
