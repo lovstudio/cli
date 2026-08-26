@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.18
+
+### Patch Changes
+
+- c330d0c: Persist each tmux `lovstudio app` run under `~/.lovstudio/logs/apps/` and include its live log path in the pane title.
+
 ## 0.4.17
 
 ### Patch Changes
