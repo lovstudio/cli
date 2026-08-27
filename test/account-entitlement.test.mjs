@@ -33,6 +33,7 @@ function run(args, env) {
         https_proxy: "",
         http_proxy: "",
         LOVSTUDIO_NO_BROWSER: "1",
+        LOVSTUDIO_SKIP_LOCAL_LICENSE: "1",
         ...env,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -296,6 +297,58 @@ test("an already-owned public-source paid Skill installs from its source reposit
       result.stdout,
       /MOCK_NPX:.*add lovstudio\/media-creator-skill .*--skill lov-media-creator/,
     );
+    assert.equal(purchaseCalls, 0);
+  } finally {
+    await api.close();
+  }
+});
+
+test("a local license entitlement installs a paid Skill without account or Credits requests", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-local-license-owned-"));
+  const home = join(fixture, ".lovstudio");
+  const bin = join(fixture, "bin");
+  await mkdir(home, { recursive: true });
+  await mkdir(bin, { recursive: true });
+
+  const uvx = join(bin, "uvx");
+  await writeFile(
+    uvx,
+    "#!/bin/sh\nprintf '%s\\n' '{\"activated\":true,\"licenses\":[{\"entitled_skills\":[\"media-creator\"]}]}'\n",
+  );
+  await chmod(uvx, 0o755);
+  const npx = join(bin, "npx");
+  await writeFile(npx, "#!/bin/sh\necho \"MOCK_NPX:$*\"\n");
+  await chmod(npx, 0o755);
+
+  let priceCalls = 0;
+  let purchaseCalls = 0;
+  const api = await listen(async (req, res) => {
+    if (req.url === "/skills.yaml") {
+      res.writeHead(200, { "content-type": "text/yaml" });
+      return res.end(`skills:\n- name: media-creator\n  runtime_name: lov-media-creator\n  repo: lovstudio/media-creator-skill\n  paid: true\n  public_source: true\n`);
+    }
+    if (req.url?.startsWith("/api/skills/price")) priceCalls += 1;
+    if (req.url === "/api/skills/purchase") purchaseCalls += 1;
+    return json(res, 500, { error: "must_not_call_account_or_credits" });
+  });
+  try {
+    const result = await run(
+      ["skills", "add", "media-creator", "-g", "-a", "codex", "-y"],
+      {
+        LOVSTUDIO_HOME: home,
+        LOVSTUDIO_WEB_URL: api.baseUrl,
+        LOVSTUDIO_SKILLS_CATALOG_URL: `${api.baseUrl}/skills.yaml`,
+        LOVSTUDIO_SKIP_LOCAL_LICENSE: "0",
+        PATH: `${bin}${delimiter}${process.env.PATH}`,
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /本机 license 已授权.*不需要 Credits/);
+    assert.match(
+      result.stdout,
+      /MOCK_NPX:.*add lovstudio\/media-creator-skill .*--skill lov-media-creator/,
+    );
+    assert.equal(priceCalls, 0);
     assert.equal(purchaseCalls, 0);
   } finally {
     await api.close();

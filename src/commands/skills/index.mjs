@@ -6,7 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { parse as parseYaml } from "yaml";
 import { hasBin, runCapture, runInherit } from "../../lib/exec.mjs";
 import { hfetch } from "../../lib/fetch.mjs";
-import { runHelper } from "../../lib/helper.mjs";
+import { runHelper, UVX_PREFIX } from "../../lib/helper.mjs";
 import { AccountError, requireAccountSession } from "../../lib/account.mjs";
 
 const GALLERY = "lovstudio/skills";
@@ -104,7 +104,7 @@ async function resolveCatalogSkill(name) {
   const skill = findCatalogSkill(catalog, name);
   if (!skill) {
     console.error(`目录中没有找到 Skill：${canonicalSkillName(name)}`);
-    console.error(`查看可用 Skill：npx lovstudio skills list`);
+    console.error(`查看可用 Skill：npx -y lovstudio@latest skills list`);
     process.exit(2);
   }
   return skill;
@@ -166,7 +166,43 @@ export function paidSkillInstallSource(skill) {
   return null;
 }
 
+export function licenseStatusEntitlesSkill(status, skillName) {
+  const canonical = canonicalSkillName(skillName);
+  return Array.isArray(status?.licenses) && status.licenses.some((license) =>
+    Array.isArray(license?.entitled_skills) &&
+    license.entitled_skills.some((name) => canonicalSkillName(name) === canonical)
+  );
+}
+
+function readLocalLicenseStatus() {
+  if (process.env.LOVSTUDIO_SKIP_LOCAL_LICENSE === "1" || !hasBin("uvx")) return null;
+  const result = runCapture("uvx", [...UVX_PREFIX, "status", "--json"]);
+  if (result.status !== 0) return null;
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    return null;
+  }
+}
+
+function localLicenseEntitlesSkill(skillName) {
+  let status = readLocalLicenseStatus();
+  if (licenseStatusEntitlesSkill(status, skillName)) return true;
+  if (!status?.activated) return false;
+
+  // Dynamic all licenses learn about newly listed Skills on heartbeat. Ignore
+  // refresh failures here so account ownership remains a safe fallback.
+  runCapture("uvx", [...UVX_PREFIX, "heartbeat"]);
+  status = readLocalLicenseStatus();
+  return licenseStatusEntitlesSkill(status, skillName);
+}
+
 async function redeemPaidSkill(skill, yes) {
+  if (localLicenseEntitlesSkill(skill.name)) {
+    console.log(`✓ 本机 license 已授权「${skill.name}」，直接安装，不需要 Credits。`);
+    return;
+  }
+
   const token = await requireAccountToken();
   let price;
   try {
@@ -198,7 +234,7 @@ async function redeemPaidSkill(skill, yes) {
   if (!response.ok) {
     if (response.status === 402) {
       console.error(`Credits 余额不足，需要 ${price.price_credits} Credits。`);
-      console.error(`充值后重新运行：npx lovstudio skills add ${skill.name}`);
+      console.error(`充值后重新运行：npx -y lovstudio@latest skills add ${skill.name}`);
     } else if (response.status === 401) {
       console.error("Lovstudio 登录状态已失效，请重新运行命令完成登录。 ");
     } else {
