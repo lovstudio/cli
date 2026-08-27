@@ -3,7 +3,7 @@
 One CLI for Lovstudio users: install skills and activate license keys.
 
 ```bash
-npx lovstudio --help
+npx -y lovstudio@latest --help
 ```
 
 ## Local apps
@@ -86,30 +86,31 @@ for that pane so the returning prompt cannot overwrite it.
 
 ```bash
 # Connect this device once to the same account used on lovstudio.ai
-npx lovstudio account connect
+npx -y lovstudio@latest account connect
 
 # Install a free Skill directly
-npx lovstudio skills add any2pdf
+npx -y lovstudio@latest skills add any2pdf
 
 # Install a paid Skill (the command signs in, checks ownership, then downloads
 # its declared encrypted bundle or public source)
-npx lovstudio skills add subtitle-freedom
+npx -y lovstudio@latest skills add subtitle-freedom
 
 # Install a skill + preflight its runtime deps, auto-installing any that are missing
-npx lovstudio skills add wxmp-cracker --with-deps
+npx -y lovstudio@latest skills add wxmp-cracker --with-deps
 
 # Install all free Skills globally; add paid Skills individually
-npx lovstudio skills add skills -g -y
+npx -y lovstudio@latest skills add skills -g -y
 
 # List all skills in the catalog
-npx lovstudio skills list
+npx -y lovstudio@latest skills list
 ```
 
 `skills add` reads the unified `lovstudio/skills` catalog before installation.
 Free Skills install directly. Paid Skills must declare either an encrypted
-bundle or an explicit public-source delivery; the CLI connects this device to
-the user's Lovstudio website account once. It then
-checks that account's current ownership before doing anything else: a Skill
+bundle or an explicit public-source delivery. The CLI first refreshes and checks
+an activated local license, including dynamic `all` access; a matching license
+installs without Credits. Otherwise it connects this device to the user's
+Lovstudio website account and checks that account's current ownership: a Skill
 already purchased on the website installs immediately without another Credits
 confirmation or purchase request. For a Skill not yet owned, the CLI confirms
 the current Credits price and completes the redemption before downloading from
@@ -153,8 +154,8 @@ Proxy: honors `HTTPS_PROXY` / `HTTP_PROXY` (useful in mainland China).
 ## Install
 
 ```bash
-# one-off
-npx lovstudio skills list
+# one-off (recommended; always uses the current entitlement behavior)
+npx -y lovstudio@latest skills list
 
 # or global
 pnpm add -g lovstudio

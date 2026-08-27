@@ -1,5 +1,12 @@
 # lovstudio
 
+## 0.4.22
+
+### Patch Changes
+
+- Check activated local license entitlements before website ownership or Credits, including dynamic `all` access refreshed by the helper heartbeat.
+- Point copy-paste installation commands at `lovstudio@latest` so an older global CLI cannot keep using obsolete paid-Skill delivery behavior.
+
 ## 0.4.21
 
 ### Patch Changes

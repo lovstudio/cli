@@ -5,6 +5,7 @@ import {
   catalogSkillSelector,
   canonicalSkillName,
   findCatalogSkill,
+  licenseStatusEntitlesSkill,
   paidSkillInstallSource,
   skillSelector,
 } from "../src/commands/skills/index.mjs";
@@ -82,4 +83,16 @@ test("paidSkillInstallSource distinguishes encrypted and public-source delivery"
   );
   assert.equal(paidSkillInstallSource({ paid: true }), null);
   assert.equal(paidSkillInstallSource({ paid: true, public_source: true }), null);
+});
+
+test("licenseStatusEntitlesSkill accepts catalog and runtime aliases", () => {
+  const status = {
+    licenses: [
+      { entitled_skills: ["lov-media-creator", "lovstudio-write-professional-book"] },
+    ],
+  };
+  assert.equal(licenseStatusEntitlesSkill(status, "media-creator"), true);
+  assert.equal(licenseStatusEntitlesSkill(status, "lovstudio:write-professional-book"), true);
+  assert.equal(licenseStatusEntitlesSkill(status, "subtitle-freedom"), false);
+  assert.equal(licenseStatusEntitlesSkill({ activated: true }, "media-creator"), false);
 });
