@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.21
+
+### Patch Changes
+
+- Install paid Skills that explicitly use public-source delivery from their catalog-declared repository after the normal account ownership or Credits check.
+
 ## 0.4.20
 
 ### Patch Changes
