@@ -5,6 +5,7 @@ import {
   catalogSkillSelector,
   canonicalSkillName,
   findCatalogSkill,
+  paidSkillInstallSource,
   skillSelector,
 } from "../src/commands/skills/index.mjs";
 
@@ -64,4 +65,21 @@ test("findCatalogSkill accepts both product slugs and exact runtime names", () =
   assert.equal(findCatalogSkill(catalog, "sgc-install-ai"), catalog[1]);
   assert.equal(findCatalogSkill(catalog, "deep-research"), catalog[2]);
   assert.equal(findCatalogSkill(catalog, "lov-legacy-entry"), catalog[3]);
+});
+
+test("paidSkillInstallSource distinguishes encrypted and public-source delivery", () => {
+  assert.equal(
+    paidSkillInstallSource({ paid: true, encrypted_bundle: true }),
+    "lovstudio/skills",
+  );
+  assert.equal(
+    paidSkillInstallSource({
+      paid: true,
+      public_source: true,
+      repo: "lovstudio/media-creator-skill",
+    }),
+    "lovstudio/media-creator-skill",
+  );
+  assert.equal(paidSkillInstallSource({ paid: true }), null);
+  assert.equal(paidSkillInstallSource({ paid: true, public_source: true }), null);
 });

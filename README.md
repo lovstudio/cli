@@ -91,8 +91,8 @@ npx lovstudio account connect
 # Install a free Skill directly
 npx lovstudio skills add any2pdf
 
-# Install a paid Skill (the command signs in, asks for Credits, then downloads
-# the encrypted bundle)
+# Install a paid Skill (the command signs in, checks ownership, then downloads
+# its declared encrypted bundle or public source)
 npx lovstudio skills add subtitle-freedom
 
 # Install a skill + preflight its runtime deps, auto-installing any that are missing
@@ -106,15 +106,17 @@ npx lovstudio skills list
 ```
 
 `skills add` reads the unified `lovstudio/skills` catalog before installation.
-Free Skills install directly. Paid Skills must have an encrypted bundle; the
-CLI connects this device to the user's Lovstudio website account once. It then
+Free Skills install directly. Paid Skills must declare either an encrypted
+bundle or an explicit public-source delivery; the CLI connects this device to
+the user's Lovstudio website account once. It then
 checks that account's current ownership before doing anything else: a Skill
 already purchased on the website installs immediately without another Credits
 confirmation or purchase request. For a Skill not yet owned, the CLI confirms
-the current Credits price and completes the redemption before downloading the
-encrypted bundle. Sessions refresh silently, and the encrypted placeholder
-uses the same account entitlement at runtime, so no activation key is needed
-and plaintext Skill code is not written to disk.
+the current Credits price and completes the redemption before downloading from
+the declared source. Encrypted placeholders use the same account entitlement at
+runtime, so no activation key is needed and protected plaintext is not written
+to disk. Public-source paid Skills remain openly inspectable and install from
+their catalog-declared repository after the same ownership check.
 
 The command also resolves the Skill's `dependencies:` frontmatter and runs each
 `check` command. With `--with-deps`, missing ones are installed automatically

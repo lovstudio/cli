@@ -158,13 +158,15 @@ async function confirmPurchase(name, price, yes) {
   }
 }
 
-async function redeemPaidSkill(skill, yes) {
-  if (!skill.encrypted_bundle) {
-    console.error(`Skill「${skill.name}」已标记为付费，但聚合目录还没有可分发的加密包。`);
-    console.error("发布者需要先完成加密打包；本次不会下载明文代码。");
-    process.exit(1);
+export function paidSkillInstallSource(skill) {
+  if (skill?.encrypted_bundle) return GALLERY;
+  if (skill?.public_source && String(skill?.repo || "").trim()) {
+    return String(skill.repo).trim();
   }
+  return null;
+}
 
+async function redeemPaidSkill(skill, yes) {
   const token = await requireAccountToken();
   let price;
   try {
@@ -337,18 +339,27 @@ async function addAction(rawArgs) {
   }
 
   // 2. Resolve the unified catalog before installing a single Skill. This is
-  //    also the paid gate: purchase/login completes before npx downloads the
-  //    encrypted bundle.
+  //    also the paid gate: purchase/login completes before npx downloads from
+  //    the delivery source declared by the catalog.
   const installAll = isAllSkillsName(args.name);
+  let installSource = GALLERY;
   let selectors;
   if (!installAll) {
     const skill = await resolveCatalogSkill(args.name);
-    if (skill.paid) await redeemPaidSkill(skill, args.yes);
+    if (skill.paid) {
+      installSource = paidSkillInstallSource(skill);
+      if (!installSource) {
+        console.error(`Skill「${skill.name}」已标记为付费，但聚合目录还没有可分发的加密包。`);
+        console.error("发布者需要先完成加密打包，或为公开源码交付声明 public_source: true。");
+        process.exit(1);
+      }
+      await redeemPaidSkill(skill, args.yes);
+    }
     selectors = [catalogSkillSelector(skill)];
   } else {
     // The aggregate command is intentionally free-only. Paid Skills must be
     // redeemed one at a time so the user sees the exact Credits cost and the
-    // installer never pulls a paid bundle before entitlement is confirmed.
+    // installer never pulls a paid delivery source before entitlement is confirmed.
     selectors = await resolveFreeCatalogSelectors();
   }
 
@@ -356,9 +367,9 @@ async function addAction(rawArgs) {
   //    SKILL.md frontmatter declares skills in the index. Historical issue
   //    messages told users to pass `lovstudio/skills`; keep that as an alias
   //    for "install the whole catalog" so older copy-paste instructions work.
-  console.log(`Installing ${installAll ? "all free Lovstudio skills" : args.name} from ${GALLERY}...`);
+  console.log(`Installing ${installAll ? "all free Lovstudio skills" : args.name} from ${installSource}...`);
   const skillArgs = [
-    "-y", SKILLS_NPX_SPEC, "add", GALLERY,
+    "-y", SKILLS_NPX_SPEC, "add", installSource,
     "--skill", ...selectors,
   ];
   if (args.agent) skillArgs.push("-a", args.agent);
@@ -429,8 +440,9 @@ Options for \`add\`:
       --with-deps      auto-install missing runtime deps declared in SKILL.md
 
 \`add\` installs from ${GALLERY} (no need to type the gallery path). Free Skills
-install directly. A paid Skill must have an encrypted bundle, then the command
-signs in and redeems its Credits before downloading. Passing \`skills\`, \`all\`,
+install directly. A paid Skill must declare either an encrypted bundle or an
+explicit public-source delivery; the command signs in and redeems its Credits
+before downloading from that source. Passing \`skills\`, \`all\`,
 \`*\`, or \`${GALLERY}\` installs all free entries; paid entries are added one at a time after redemption. Single-skill installs read
 the Skill's \`dependencies:\` frontmatter and run each \`check\` command. With
 --with-deps, missing ones are installed automatically.

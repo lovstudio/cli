@@ -237,3 +237,67 @@ test("an already-owned website Skill installs without purchase confirmation or p
     await api.close();
   }
 });
+
+test("an already-owned public-source paid Skill installs from its source repository", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-account-public-source-"));
+  const home = join(fixture, ".lovstudio");
+  const bin = join(fixture, "bin");
+  await mkdir(home, { recursive: true });
+  await mkdir(bin, { recursive: true });
+  await writeFile(
+    join(home, "auth.yml"),
+    stringifyYaml({
+      access_token: "valid-access-token",
+      refresh_token: "valid-refresh-token",
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      user_id: "user-123",
+      email: "buyer@example.com",
+    }),
+  );
+  const npx = join(bin, "npx");
+  await writeFile(npx, "#!/bin/sh\necho \"MOCK_NPX:$*\"\n");
+  await chmod(npx, 0o755);
+  let purchaseCalls = 0;
+  const api = await listen(async (req, res) => {
+    if (req.url === "/skills.yaml") {
+      res.writeHead(200, { "content-type": "text/yaml" });
+      return res.end(`skills:\n- name: media-creator\n  runtime_name: lov-media-creator\n  repo: lovstudio/media-creator-skill\n  paid: true\n  public_source: true\n`);
+    }
+    if (req.url?.startsWith("/api/skills/price")) {
+      assert.equal(req.headers.authorization, "Bearer valid-access-token");
+      return json(res, 200, {
+        skill_id: 637,
+        skill_name: "media-creator",
+        price_credits: 1394,
+        list_price_credits: 1394,
+        discount_percent: 0,
+        owned: true,
+      });
+    }
+    if (req.url === "/api/skills/purchase") {
+      purchaseCalls += 1;
+      return json(res, 500, { error: "must_not_purchase" });
+    }
+    return json(res, 404, { error: "not_found" });
+  });
+  try {
+    const result = await run(
+      ["skills", "add", "media-creator", "-g", "-a", "codex", "-y"],
+      {
+        LOVSTUDIO_HOME: home,
+        LOVSTUDIO_WEB_URL: api.baseUrl,
+        LOVSTUDIO_SKILLS_CATALOG_URL: `${api.baseUrl}/skills.yaml`,
+        PATH: `${bin}${delimiter}${process.env.PATH}`,
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /网站账号已拥有.*直接安装/);
+    assert.match(
+      result.stdout,
+      /MOCK_NPX:.*add lovstudio\/media-creator-skill .*--skill lov-media-creator/,
+    );
+    assert.equal(purchaseCalls, 0);
+  } finally {
+    await api.close();
+  }
+});
