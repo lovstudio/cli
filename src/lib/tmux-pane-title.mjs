@@ -69,22 +69,18 @@ export function startTmuxPaneLog(path, env = process.env) {
   };
 }
 
-// Set a visible title for the current tmux pane and return a restore callback.
+// Set a visible title for the current tmux pane. The title intentionally remains
+// after the app exits so the command and completed run log stay discoverable.
 // tmux failures are deliberately ignored so pane decoration can never block an app command.
 export function setTmuxPaneTitle(title, env = process.env) {
   const pane = env.TMUX_PANE;
-  if (!env.TMUX || !pane || !title) return () => {};
+  if (!env.TMUX || !pane || !title) return;
 
-  const originalTitle = runTmux([
-    "display-message",
-    "-p",
-    "-t",
-    pane,
-    "#{pane_title}",
-  ], { capture: true });
-  if (originalTitle === null) return () => {};
-
-  if (runTmux(["select-pane", "-t", pane, "-T", title]) === null) return () => {};
+  if (runTmux(["select-pane", "-t", pane, "-T", title]) === null) return;
+  // Shell prompts commonly emit OSC title sequences after the child exits.
+  // Disable those updates for this pane so the completed run title and log
+  // address remain available until LovStudio explicitly titles it again.
+  runTmux(["set-option", "-p", "-t", pane, "allow-set-title", "off"]);
 
   // Pane titles are only visible when pane borders are enabled. Preserve an existing
   // top/bottom preference; otherwise enable the default top title for this window.
@@ -108,8 +104,4 @@ export function setTmuxPaneTitle(title, env = process.env) {
     "pane-border-format",
     VISIBLE_PANE_BORDER_FORMAT,
   ]);
-
-  return () => {
-    runTmux(["select-pane", "-t", pane, "-T", originalTitle]);
-  };
 }

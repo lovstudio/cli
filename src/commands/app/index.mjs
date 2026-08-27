@@ -294,18 +294,16 @@ async function runAppCommand(args) {
     runCommand,
     logPath ? displayAppRunLogPath(logPath) : null,
   );
-  const restorePaneTitle = setTmuxPaneTitle(paneTitle);
+  setTmuxPaneTitle(paneTitle);
   let code;
   try {
     code = await runInheritAsync(
       packageManager,
       runCommand,
       { cwd: app.path },
-      { onSignal: restorePaneTitle },
     );
   } finally {
     stopPaneLog?.();
-    restorePaneTitle();
   }
   process.exit(code);
 }

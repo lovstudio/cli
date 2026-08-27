@@ -406,7 +406,7 @@ test("defaults to pnpm when no package manager is declared or detected", async (
   assert.match(resolved.stdout, /pnpm:dev/);
 });
 
-test("labels a tmux pane while an app command runs and restores its original title", async () => {
+test("keeps the app and log title after a tmux app command exits", async () => {
   const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-tmux-title-"));
   const binDir = join(fixture, "bin");
   await createMockBin(binDir, "pnpm");
@@ -440,6 +440,9 @@ test("labels a tmux pane while an app command runs and restores its original tit
   assert.ok(calls.includes(
     `[select-pane][-t][%7][-T][Lumos · dev · ${appLog}]`,
   ));
+  assert.ok(calls.includes(
+    "[set-option][-p][-t][%7][allow-set-title][off]",
+  ));
   assert.match(
     calls,
     /\[set-option\]\[-w\]\[-t\]\[%7\]\[pane-border-status\]\[top\]/,
@@ -450,7 +453,8 @@ test("labels a tmux pane while an app command runs and restores its original tit
   ));
   assert.match(calls, /\[show-options\]\[-wAv\]/);
   assert.match(calls, /\[pipe-pane\]\[-t\]\[%7\]/);
-  assert.match(calls, /\[select-pane\]\[-t\]\[%7\]\[-T\]\[original shell\]\s*$/);
+  assert.doesNotMatch(calls, /\[select-pane\].*\[original shell\]/);
+  assert.equal(calls.match(/\[select-pane\]/g)?.length, 1);
 });
 
 test("preserves an existing tmux pane pipe instead of replacing it", async () => {
@@ -486,7 +490,7 @@ test("preserves an existing tmux pane pipe instead of replacing it", async () =>
   assert.match(calls, /\[select-pane\]\[-t\]\[%9\]\[-T\]\[Lumos · dev\]/);
 });
 
-test("restores the tmux pane title when the app command fails", async () => {
+test("keeps the app and log title when the app command fails", async () => {
   const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-tmux-failure-"));
   const binDir = join(fixture, "bin");
   await createMockTmux(binDir);
@@ -511,8 +515,18 @@ test("restores the tmux pane title when the app command fails", async () => {
   });
   assert.equal(resolved.status, 23, resolved.stderr);
 
+  const appLogs = await readdir(join(fixture, "home", "logs", "apps", "lumos"));
+  assert.equal(appLogs.length, 1);
+  const appLog = join(fixture, "home", "logs", "apps", "lumos", appLogs[0]);
   const calls = await readFile(log, "utf8");
   assert.doesNotMatch(calls, /\[set-option\].*\[pane-border-status\]/);
   assert.match(calls, /\[pane-border-format\]/);
-  assert.match(calls, /\[select-pane\]\[-t\]\[%8\]\[-T\]\[before failure\]\s*$/);
+  assert.ok(calls.includes(
+    `[select-pane][-t][%8][-T][Lumos · dev · ${appLog}]`,
+  ));
+  assert.ok(calls.includes(
+    "[set-option][-p][-t][%8][allow-set-title][off]",
+  ));
+  assert.doesNotMatch(calls, /\[select-pane\].*\[before failure\]/);
+  assert.equal(calls.match(/\[select-pane\]/g)?.length, 1);
 });

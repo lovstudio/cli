@@ -78,7 +78,9 @@ left-aligned and use a stable two-digit prefix such as
 `# 01: Lumos · dev · ~/.lovstudio/logs/apps/lumos/...`. If pane borders are hidden, the CLI
 enables the top border for the current tmux window and applies a readable
 inactive-pane label, so every pane title remains visible without focusing it.
-The pane's previous title is restored when the command exits.
+When the command exits, its pane title remains in place with the command and
+completed run log path for later inspection; shell title escapes are disabled
+for that pane so the returning prompt cannot overwrite it.
 
 ## For end users
 
