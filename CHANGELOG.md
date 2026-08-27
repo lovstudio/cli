@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.20
+
+### Patch Changes
+
+- b84a51c: Keep tmux app pane titles, including their run log paths, after commands exit.
+
 ## 0.4.19
 
 ### Patch Changes
