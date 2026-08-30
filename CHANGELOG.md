@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.23
+
+### Patch Changes
+
+- d56eb4e: Deduplicate auto-discovered apps by canonical path so a project and a symlink to it do not trigger a false ambiguity prompt.
+
 ## 0.4.22
 
 ### Patch Changes

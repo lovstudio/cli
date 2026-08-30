@@ -1,5 +1,14 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -292,6 +301,23 @@ test("an explicit mapping takes precedence over auto-discovery", async () => {
   const resolved = run(["app", "path", "demo"], { home, roots: root });
   assert.equal(resolved.status, 0, resolved.stderr);
   assert.equal(resolved.stdout.trim(), await realpath(explicit));
+});
+
+test("auto-discovery deduplicates a real app and a symlink to it", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-symlink-dedupe-"));
+  const root = join(fixture, "projects");
+  const app = join(root, "imagine");
+  const legacyAlias = join(root, "lovcreate");
+  await createApp(app, { name: "imagine", productName: "Imagine" });
+  await symlink(app, legacyAlias, process.platform === "win32" ? "junction" : "dir");
+
+  const resolved = run(["app", "path", "imagine"], {
+    home: join(fixture, "home"),
+    roots: root,
+  });
+  assert.equal(resolved.status, 0, resolved.stderr);
+  assert.doesNotMatch(resolved.stderr, /Multiple apps match/);
+  assert.equal(resolved.stdout.trim(), await realpath(app));
 });
 
 test("an ambiguous app choice is prompted once and remembered", async () => {
