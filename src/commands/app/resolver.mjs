@@ -180,8 +180,14 @@ export async function inspectApp(path) {
 
 async function rootCandidates(root) {
   const candidates = [];
+  const seenPaths = new Set();
+  const addCandidate = (app) => {
+    if (!app || seenPaths.has(app.path)) return;
+    seenPaths.add(app.path);
+    candidates.push(app);
+  };
   const rootApp = await inspectApp(root);
-  if (rootApp) candidates.push(rootApp);
+  addCandidate(rootApp);
 
   let entries;
   try {
@@ -194,7 +200,7 @@ async function rootCandidates(root) {
     if (entry.name.startsWith(".")) continue;
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
     const app = await inspectApp(join(root, entry.name));
-    if (app) candidates.push(app);
+    addCandidate(app);
   }
   return candidates;
 }
