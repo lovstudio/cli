@@ -107,7 +107,58 @@ async function resolveCatalogSkill(name) {
     console.error(`查看可用 Skill：npx -y lovstudio@latest skills list`);
     process.exit(2);
   }
-  return skill;
+  return { catalog, skill };
+}
+
+export function catalogSkillDependencyClosure(catalog, rootSkill) {
+  const ordered = [];
+  const visiting = new Set();
+  const visited = new Set();
+
+  function visit(skill, path) {
+    const name = canonicalSkillName(skill?.name || "");
+    if (!name) throw new Error("catalog dependency has no Skill name");
+    if (visiting.has(name)) {
+      throw new Error(`catalog dependency cycle: ${[...path, name].join(" -> ")}`);
+    }
+    if (visited.has(name)) return;
+
+    visiting.add(name);
+    for (const dependency of skill?.depends_on || []) {
+      const resolved = findCatalogSkill(catalog, dependency);
+      if (!resolved) {
+        throw new Error(`${name} depends on missing catalog Skill: ${dependency}`);
+      }
+      visit(resolved, [...path, name]);
+    }
+    visiting.delete(name);
+    visited.add(name);
+    ordered.push(skill);
+  }
+
+  visit(rootSkill, []);
+  return ordered;
+}
+
+export function catalogSkillInstallPlans(skills) {
+  const plans = [];
+  for (const skill of skills) {
+    const source = skill?.paid ? paidSkillInstallSource(skill) : GALLERY;
+    if (!source) {
+      throw new Error(
+        `Skill「${skill?.name || "unknown"}」已标记为付费，但聚合目录还没有可分发的加密包。`,
+      );
+    }
+    const selector = catalogSkillSelector(skill);
+    const current = plans.at(-1);
+    if (current?.source === source) {
+      current.selectors.push(selector);
+      current.skills.push(skill);
+    } else {
+      plans.push({ source, selectors: [selector], skills: [skill] });
+    }
+  }
+  return plans;
 }
 
 async function resolveFreeCatalogSelectors() {
@@ -378,45 +429,52 @@ async function addAction(rawArgs) {
   //    also the paid gate: purchase/login completes before npx downloads from
   //    the delivery source declared by the catalog.
   const installAll = isAllSkillsName(args.name);
-  let installSource = GALLERY;
-  let selectors;
+  let installPlans;
+  let selectedSkills = [];
   if (!installAll) {
-    const skill = await resolveCatalogSkill(args.name);
-    if (skill.paid) {
-      installSource = paidSkillInstallSource(skill);
-      if (!installSource) {
-        console.error(`Skill「${skill.name}」已标记为付费，但聚合目录还没有可分发的加密包。`);
-        console.error("发布者需要先完成加密打包，或为公开源码交付声明 public_source: true。");
-        process.exit(1);
-      }
-      await redeemPaidSkill(skill, args.yes);
+    const { catalog, skill } = await resolveCatalogSkill(args.name);
+    try {
+      selectedSkills = catalogSkillDependencyClosure(catalog, skill);
+      installPlans = catalogSkillInstallPlans(selectedSkills);
+    } catch (error) {
+      console.error(`无法解析「${skill.name}」的 Skill 依赖：${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
     }
-    selectors = [catalogSkillSelector(skill)];
+    for (const selected of selectedSkills) {
+      if (selected.paid) await redeemPaidSkill(selected, args.yes);
+    }
   } else {
     // The aggregate command is intentionally free-only. Paid Skills must be
     // redeemed one at a time so the user sees the exact Credits cost and the
     // installer never pulls a paid delivery source before entitlement is confirmed.
-    selectors = await resolveFreeCatalogSelectors();
+    const selectors = await resolveFreeCatalogSelectors();
+    installPlans = [{ source: GALLERY, selectors, skills: [] }];
   }
 
   // 3. Install via vercel-labs/skills. Use the namespaced form — that's how
   //    SKILL.md frontmatter declares skills in the index. Historical issue
   //    messages told users to pass `lovstudio/skills`; keep that as an alias
   //    for "install the whole catalog" so older copy-paste instructions work.
-  console.log(`Installing ${installAll ? "all free Lovstudio skills" : args.name} from ${installSource}...`);
-  const skillArgs = [
-    "-y", SKILLS_NPX_SPEC, "add", installSource,
-    "--skill", ...selectors,
-  ];
-  if (args.agent) skillArgs.push("-a", args.agent);
-  if (args.global) skillArgs.push("--global");
-  if (args.yes) skillArgs.push("--yes");
-  skillArgs.push(...args.extra);
+  const dependencyCount = installAll ? 0 : Math.max(0, selectedSkills.length - 1);
+  const dependencyLabel = dependencyCount
+    ? ` with ${dependencyCount} Skill dependenc${dependencyCount === 1 ? "y" : "ies"}`
+    : "";
+  console.log(`Installing ${installAll ? "all free Lovstudio skills" : args.name}${dependencyLabel}...`);
+  for (const plan of installPlans) {
+    const skillArgs = [
+      "-y", SKILLS_NPX_SPEC, "add", plan.source,
+      "--skill", ...plan.selectors,
+    ];
+    if (args.agent) skillArgs.push("-a", args.agent);
+    if (args.global) skillArgs.push("--global");
+    if (args.yes) skillArgs.push("--yes");
+    skillArgs.push(...args.extra);
 
-  const installCode = runInherit("npx", skillArgs);
-  if (installCode !== 0) {
-    console.error(`\nnpx skills add exited ${installCode}`);
-    process.exit(installCode);
+    const installCode = runInherit("npx", skillArgs);
+    if (installCode !== 0) {
+      console.error(`\nnpx skills add exited ${installCode}`);
+      process.exit(installCode);
+    }
   }
 
   // 4. Preflight deps from placeholder frontmatter. Only meaningful for
@@ -424,11 +482,13 @@ async function addAction(rawArgs) {
   //    easy way to locate from here, and full-catalog installs would need to
   //    aggregate many frontmatters.
   if (args.global && !installAll) {
-    const fm = await readSkillFrontmatter(selectors[0]);
-    if (fm) {
-      const missing = preflightReport(args.name, fm.dependencies);
+    for (const selected of selectedSkills) {
+      const runtimeName = catalogSkillSelector(selected);
+      const fm = await readSkillFrontmatter(runtimeName);
+      if (!fm) continue;
+      const missing = preflightReport(selected.name, fm.dependencies);
       const code = resolveMissing(missing, args.withDeps);
-      process.exit(code);
+      if (code !== 0) process.exit(code);
     }
   }
 
@@ -473,15 +533,16 @@ Options for \`add\`:
   -g, --global         install globally into ~/.agents/skills/ and agent dirs (default)
       --project        install into ./skills/ for the current project
   -y, --yes            skip confirmation prompts
-      --with-deps      auto-install missing runtime deps declared in SKILL.md
+      --with-deps      auto-install missing executable deps declared in SKILL.md
 
 \`add\` installs from ${GALLERY} (no need to type the gallery path). Free Skills
 install directly. A paid Skill must declare either an encrypted bundle or an
 explicit public-source delivery; the command signs in and redeems its Credits
 before downloading from that source. Passing \`skills\`, \`all\`,
-\`*\`, or \`${GALLERY}\` installs all free entries; paid entries are added one at a time after redemption. Single-skill installs read
-the Skill's \`dependencies:\` frontmatter and run each \`check\` command. With
---with-deps, missing ones are installed automatically.
+\`*\`, or \`${GALLERY}\` installs all free entries; paid entries are added one at a time after redemption. Single-skill installs
+automatically include the catalog's transitive \`depends_on\` Skill closure, then
+read each installed Skill's executable \`dependencies:\` frontmatter and run its
+\`check\` commands. With --with-deps, missing executable dependencies are installed automatically.
 `);
 }
 

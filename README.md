@@ -119,9 +119,11 @@ runtime, so no activation key is needed and protected plaintext is not written
 to disk. Public-source paid Skills remain openly inspectable and install from
 their catalog-declared repository after the same ownership check.
 
-The command also resolves the Skill's `dependencies:` frontmatter and runs each
-`check` command. With `--with-deps`, missing ones are installed automatically
-via their declared `install` command.
+The command automatically installs the selected Skill's transitive Skill
+dependencies from the catalog's `depends_on` graph. It then resolves each
+installed Skill's executable `dependencies:` frontmatter and runs every `check`
+command. With `--with-deps`, missing executable dependencies are installed
+automatically via their declared `install` command.
 
 Under the hood:
 - `account connect` → browser device confirmation on `lovstudio.ai`; the shared session is stored owner-only under `~/.lovstudio/` for local Agent tools

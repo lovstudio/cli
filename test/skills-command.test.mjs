@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  catalogSkillDependencyClosure,
+  catalogSkillInstallPlans,
   catalogSkillSelector,
   canonicalSkillName,
   findCatalogSkill,
@@ -9,6 +11,64 @@ import {
   paidSkillInstallSource,
   skillSelector,
 } from "../src/commands/skills/index.mjs";
+
+test("catalogSkillDependencyClosure installs transitive Skill dependencies first", () => {
+  const catalog = [
+    { name: "branding-consistency", runtime_name: "lov-branding-consistency" },
+    { name: "human-writing", runtime_name: "lov-human-writing", depends_on: ["branding-consistency"] },
+    { name: "writing-style", runtime_name: "lov-writing-style", depends_on: ["branding-consistency", "human-writing"] },
+  ];
+
+  assert.deepEqual(
+    catalogSkillDependencyClosure(catalog, catalog[2]).map((skill) => skill.name),
+    ["branding-consistency", "human-writing", "writing-style"],
+  );
+});
+
+test("catalogSkillDependencyClosure rejects missing and cyclic dependencies", () => {
+  const missing = [{ name: "writing-style", depends_on: ["human-writing"] }];
+  assert.throws(
+    () => catalogSkillDependencyClosure(missing, missing[0]),
+    /depends on missing catalog Skill: human-writing/,
+  );
+
+  const cyclic = [
+    { name: "first", depends_on: ["second"] },
+    { name: "second", depends_on: ["first"] },
+  ];
+  assert.throws(
+    () => catalogSkillDependencyClosure(cyclic, cyclic[0]),
+    /catalog dependency cycle: first -> second -> first/,
+  );
+});
+
+test("catalogSkillInstallPlans groups adjacent selectors by delivery source", () => {
+  const freeBrand = { name: "branding-consistency", runtime_name: "lov-branding-consistency", paid: false };
+  const freeHuman = { name: "human-writing", runtime_name: "lov-human-writing", paid: false };
+  const paidPublic = {
+    name: "public-paid",
+    runtime_name: "lov-public-paid",
+    paid: true,
+    public_source: true,
+    repo: "lovstudio/public-paid-skill",
+  };
+
+  assert.deepEqual(
+    catalogSkillInstallPlans([freeBrand, freeHuman, paidPublic]),
+    [
+      {
+        source: "lovstudio/skills",
+        selectors: ["lov-branding-consistency", "lov-human-writing"],
+        skills: [freeBrand, freeHuman],
+      },
+      {
+        source: "lovstudio/public-paid-skill",
+        selectors: ["lov-public-paid"],
+        skills: [paidPublic],
+      },
+    ],
+  );
+});
 
 test("skillSelector maps catalog aliases to the current lov-* install id", () => {
   assert.equal(skillSelector("write-professional-book"), "lov-write-professional-book");

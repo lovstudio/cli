@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.24
+
+### Patch Changes
+
+- Install the selected Skill's complete transitive `depends_on` closure from the unified catalog, while keeping executable `dependencies:` preflight and `--with-deps` behavior separate.
+
 ## 0.4.23
 
 ### Patch Changes
