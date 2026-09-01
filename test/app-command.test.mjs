@@ -14,6 +14,7 @@ import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { extractWebAccessAddress } from "../src/lib/tmux-pane-title.mjs";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const cli = join(repoRoot, "bin", "lovstudio.mjs");
@@ -481,6 +482,60 @@ test("keeps the app and log title after a tmux app command exits", async () => {
   assert.match(calls, /\[pipe-pane\]\[-t\]\[%7\]/);
   assert.doesNotMatch(calls, /\[select-pane\].*\[original shell\]/);
   assert.equal(calls.match(/\[select-pane\]/g)?.length, 1);
+});
+
+test("extracts a web service address without mistaking documentation URLs for it", () => {
+  const output = [
+    "Learn more at https://vite.dev/guide/",
+    "\u001b[32m  ➜  Local:   http://localhost:5173/?token=secret#ready\u001b[0m",
+    "  ➜  Network: http://192.168.1.8:5173/",
+  ].join("\n");
+  assert.equal(extractWebAccessAddress(output), "http://localhost:5173/");
+  assert.equal(extractWebAccessAddress("Docs: https://vite.dev/guide/"), null);
+  assert.equal(
+    extractWebAccessAddress("Server listening on http://[::1]:1420/"),
+    "http://[::1]:1420/",
+  );
+});
+
+test("adds a detected web service address to the tmux pane title", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-app-tmux-web-address-"));
+  const binDir = join(fixture, "bin");
+  await createMockTmux(binDir);
+  const pnpm = join(binDir, "pnpm");
+  await writeFile(pnpm, `#!/bin/sh
+log_path=$(find "$LOVSTUDIO_HOME/logs/apps/lumos" -type f -name '*.log' | head -n 1)
+printf '\\033[32m  ➜  Local:   http://localhost:4173/\\033[0m\\n' >> "$log_path"
+sleep 0.5
+`);
+  await chmod(pnpm, 0o755);
+  const root = join(fixture, "projects");
+  await createApp(join(root, "lumos"), { name: "lumos", productName: "Lumos" });
+  const tmuxLog = join(fixture, "tmux.log");
+  const home = join(fixture, "home");
+
+  const resolved = run(["app", "lumos", "dev:web"], {
+    home,
+    roots: root,
+    path: binDir,
+    env: {
+      TMUX: "/tmp/tmux-test/default,1,0",
+      TMUX_PANE: "%10",
+      TMUX_TEST_LOG: tmuxLog,
+      TMUX_TEST_BORDER_STATUS: "top",
+    },
+  });
+  assert.equal(resolved.status, 0, resolved.stderr);
+
+  const appLogs = await readdir(join(home, "logs", "apps", "lumos"));
+  assert.equal(appLogs.length, 1);
+  const appLog = join(home, "logs", "apps", "lumos", appLogs[0]);
+  assert.match(await readFile(appLog, "utf8"), /Local:   http:\/\/localhost:4173\//);
+
+  const calls = await readFile(tmuxLog, "utf8");
+  assert.ok(calls.includes(
+    `[select-pane][-t][%10][-T][Lumos · dev:web · http://localhost:4173/ · ${appLog}]`,
+  ));
 });
 
 test("preserves an existing tmux pane pipe instead of replacing it", async () => {

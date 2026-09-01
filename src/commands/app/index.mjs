@@ -6,6 +6,7 @@ import { hasBin, runInheritAsync } from "../../lib/exec.mjs";
 import {
   formatTmuxPaneTitle,
   setTmuxPaneTitle,
+  startTmuxPaneWebAddressWatcher,
   startTmuxPaneLog,
 } from "../../lib/tmux-pane-title.mjs";
 import {
@@ -289,12 +290,19 @@ async function runAppCommand(args) {
   if (app.source === "auto") console.log(`Discovered ${name} at ${app.path}`);
   if (packageManager !== "pnpm") console.error(`Using ${packageManager} for ${name}`);
   if (logPath) console.error(`Log: ${logPath}`);
+  const displayLogPath = logPath ? displayAppRunLogPath(logPath) : null;
   const paneTitle = formatTmuxPaneTitle(
     app.displayName || name,
     runCommand,
-    logPath ? displayAppRunLogPath(logPath) : null,
+    displayLogPath,
   );
   setTmuxPaneTitle(paneTitle);
+  const stopWebAddressWatcher = startTmuxPaneWebAddressWatcher(
+    app.displayName || name,
+    runCommand,
+    logPath,
+    displayLogPath,
+  );
   let code;
   try {
     code = await runInheritAsync(
@@ -304,6 +312,7 @@ async function runAppCommand(args) {
     );
   } finally {
     stopPaneLog?.();
+    await stopWebAddressWatcher();
   }
   process.exit(code);
 }
