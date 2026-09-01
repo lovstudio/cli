@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.4.25
+
+### Patch Changes
+
+- d6c937c: Show detected web service access addresses in `lovstudio app` tmux pane titles.
+
 ## 0.4.24
 
 ### Patch Changes
