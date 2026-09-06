@@ -1,5 +1,9 @@
-import { spawn, spawnSync } from "node:child_process";
+import spawn from "cross-spawn";
 import { constants } from "node:os";
+
+// Windows .cmd shims require cmd.exe and argument escaping, including npm's
+// second round of parsing. Native spawnSync rejects them with EINVAL.
+const spawnSync = spawn.sync;
 
 const WINDOWS_CMD_SHIMS = new Set(["npm", "npx", "pnpm", "yarn"]);
 
