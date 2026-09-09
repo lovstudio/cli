@@ -10,6 +10,7 @@ import { runHelper, UVX_PREFIX } from "../../lib/helper.mjs";
 import { AccountError, requireAccountSession } from "../../lib/account.mjs";
 
 const GALLERY = "lovstudio/skills";
+const GALLERY_INSTALL_SOURCE = `https://github.com/${GALLERY}.git`;
 const SKILLS_NPX_SPEC = "skills@latest";
 const SKILL_PREFIX = "lov-";
 const LEGACY_SKILL_PREFIX = "lovstudio-";
@@ -143,7 +144,7 @@ export function catalogSkillDependencyClosure(catalog, rootSkill) {
 export function catalogSkillInstallPlans(skills) {
   const plans = [];
   for (const skill of skills) {
-    const source = skill?.paid ? paidSkillInstallSource(skill) : GALLERY;
+    const source = skill?.paid ? paidSkillInstallSource(skill) : GALLERY_INSTALL_SOURCE;
     if (!source) {
       throw new Error(
         `Skill「${skill?.name || "unknown"}」已标记为付费，但聚合目录还没有可分发的加密包。`,
@@ -210,7 +211,7 @@ async function confirmPurchase(name, price, yes) {
 }
 
 export function paidSkillInstallSource(skill) {
-  if (skill?.encrypted_bundle) return GALLERY;
+  if (skill?.encrypted_bundle) return GALLERY_INSTALL_SOURCE;
   if (skill?.public_source && String(skill?.repo || "").trim()) {
     return String(skill.repo).trim();
   }
@@ -448,7 +449,7 @@ async function addAction(rawArgs) {
     // redeemed one at a time so the user sees the exact Credits cost and the
     // installer never pulls a paid delivery source before entitlement is confirmed.
     const selectors = await resolveFreeCatalogSelectors();
-    installPlans = [{ source: GALLERY, selectors, skills: [] }];
+    installPlans = [{ source: GALLERY_INSTALL_SOURCE, selectors, skills: [] }];
   }
 
   // 3. Install via vercel-labs/skills. Use the namespaced form — that's how
@@ -507,7 +508,7 @@ async function activateAction(rest) {
 async function listAction() {
   ensureNpx();
   // Defer to vercel-labs/skills — it clones the index and lists SKILL.md entries.
-  process.exit(runInherit("npx", ["-y", SKILLS_NPX_SPEC, "add", GALLERY, "--list"]));
+  process.exit(runInherit("npx", ["-y", SKILLS_NPX_SPEC, "add", GALLERY_INSTALL_SOURCE, "--list"]));
 }
 
 async function delegate(sub, args) {

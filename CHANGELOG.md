@@ -1,5 +1,13 @@
 # lovstudio
 
+## 0.4.27
+
+### Patch Changes
+
+- Use the full Git URL for the unified skill catalog when delegating to the
+  underlying Skills installer, so encrypted paid bundles resolve from fresh Git
+  state instead of stale raw.githubusercontent content.
+
 ## 0.4.26
 
 ### Patch Changes

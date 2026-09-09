@@ -57,7 +57,7 @@ test("catalogSkillInstallPlans groups adjacent selectors by delivery source", ()
     catalogSkillInstallPlans([freeBrand, freeHuman, paidPublic]),
     [
       {
-        source: "lovstudio/skills",
+        source: "https://github.com/lovstudio/skills.git",
         selectors: ["lov-branding-consistency", "lov-human-writing"],
         skills: [freeBrand, freeHuman],
       },
@@ -131,7 +131,7 @@ test("findCatalogSkill accepts both product slugs and exact runtime names", () =
 test("paidSkillInstallSource distinguishes encrypted and public-source delivery", () => {
   assert.equal(
     paidSkillInstallSource({ paid: true, encrypted_bundle: true }),
-    "lovstudio/skills",
+    "https://github.com/lovstudio/skills.git",
   );
   assert.equal(
     paidSkillInstallSource({
