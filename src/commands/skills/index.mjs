@@ -16,7 +16,7 @@ const SKILL_PREFIX = "lov-";
 const LEGACY_SKILL_PREFIX = "lovstudio-";
 const ALL_SKILLS_NAMES = new Set(["*", "all", "skills", GALLERY]);
 const CATALOG_URL = process.env.LOVSTUDIO_SKILLS_CATALOG_URL ||
-  `https://raw.githubusercontent.com/${GALLERY}/main/skills.yaml`;
+  `https://api.github.com/repos/${GALLERY}/contents/skills.yaml?ref=main`;
 const WEB_URL = (process.env.LOVSTUDIO_WEB_URL || "https://lovstudio.ai").replace(/\/$/, "");
 
 function isAllSkillsName(name) {
@@ -60,13 +60,24 @@ async function requireAccountToken() {
 
 async function loadCatalog() {
   const response = await hfetch(CATALOG_URL, {
-    headers: { accept: "text/yaml, text/plain" },
+    headers: { accept: "application/vnd.github+json, text/yaml, text/plain" },
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) {
     throw new Error(`catalog request failed: HTTP ${response.status}`);
   }
-  const data = parseYaml(await response.text()) || {};
+  const contentType = response.headers.get("content-type") || "";
+  let text;
+  if (contentType.includes("application/json")) {
+    const payload = await response.json();
+    if (typeof payload?.content !== "string") {
+      throw new Error("GitHub API catalog response has no encoded content");
+    }
+    text = Buffer.from(payload.content, "base64").toString("utf8");
+  } else {
+    text = await response.text();
+  }
+  const data = parseYaml(text) || {};
   return Array.isArray(data.skills) ? data.skills.filter((skill) => !skill.test) : [];
 }
 

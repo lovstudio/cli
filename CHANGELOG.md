@@ -1,5 +1,12 @@
 # lovstudio
 
+## 0.4.28
+
+### Patch Changes
+
+- Read unified catalog metadata through the GitHub API instead of raw CDN, so
+  `runtime_name` and version updates are reflected immediately after push.
+
 ## 0.4.27
 
 ### Patch Changes
