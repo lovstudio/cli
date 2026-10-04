@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.5.1
+
+### Patch Changes
+
+- Keep `skills add` working when the GitHub API rate limit is exhausted. The catalog is read from the GitHub API (using `GITHUB_TOKEN` / `GH_TOKEN` when set, sent only to api.github.com), then falls back to raw.githubusercontent.com and jsDelivr on any failure such as `HTTP 403`. A mirror that answers with something other than a catalog no longer passes as an empty one, and installs still stop when no source returns the catalog.
+
 ## 0.5.0
 
 ### Minor Changes

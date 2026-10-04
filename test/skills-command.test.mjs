@@ -10,9 +10,66 @@ import {
   catalogSkillSelector,
   canonicalSkillName,
   findCatalogSkill,
+  loadCatalog,
   locateExtractedSkill,
   skillSelector,
 } from "../src/commands/skills/index.mjs";
+
+const API_CATALOG = "https://api.github.com/repos/lovstudio/skills/contents/skills.yaml?ref=main";
+const RAW_CATALOG = "https://raw.githubusercontent.com/lovstudio/skills/main/skills.yaml";
+const CDN_CATALOG = "https://cdn.jsdelivr.net/gh/lovstudio/skills@main/skills.yaml";
+
+function withEnv(t, name, value) {
+  const previous = process.env[name];
+  process.env[name] = value;
+  t.after(() => {
+    if (previous === undefined) delete process.env[name];
+    else process.env[name] = previous;
+  });
+}
+
+test("loadCatalog falls back to the raw mirror when the GitHub API answers 403", async (t) => {
+  withEnv(t, "GITHUB_TOKEN", "test-token");
+  t.mock.method(console, "error", () => {});
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    requests.push({ url, authorization: init.headers.authorization });
+    if (url === API_CATALOG) {
+      return new Response('{"message":"API rate limit exceeded"}', {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("version: 1\nskills:\n- name: wxmp-cli\n  paid: false\n- name: smoke\n  test: true\n", {
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  });
+
+  const catalog = await loadCatalog([API_CATALOG, RAW_CATALOG, CDN_CATALOG]);
+
+  assert.deepEqual(catalog.map((skill) => skill.name), ["wxmp-cli"]);
+  assert.deepEqual(requests, [
+    { url: API_CATALOG, authorization: "Bearer test-token" },
+    { url: RAW_CATALOG, authorization: undefined },
+  ]);
+});
+
+test("loadCatalog fails instead of returning an empty catalog when every source fails", async (t) => {
+  t.mock.method(globalThis, "fetch", async (url) => {
+    if (url === API_CATALOG) return new Response("", { status: 429 });
+    if (url === RAW_CATALOG) return new Response("<html>blocked</html>", { headers: { "content-type": "text/html" } });
+    throw new TypeError("fetch failed", { cause: Object.assign(new Error("getaddrinfo"), { code: "ENOTFOUND" }) });
+  });
+
+  await assert.rejects(
+    loadCatalog([API_CATALOG, RAW_CATALOG, CDN_CATALOG]),
+    {
+      message: "catalog request failed: api.github.com HTTP 429; " +
+        "raw.githubusercontent.com response is not a skills catalog; " +
+        "cdn.jsdelivr.net fetch failed (ENOTFOUND)",
+    },
+  );
+});
 
 test("catalogSkillDependencyClosure installs transitive Skill dependencies first", () => {
   const catalog = [
