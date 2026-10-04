@@ -15,8 +15,16 @@ const SKILLS_NPX_SPEC = "skills@latest";
 const SKILL_PREFIX = "lov-";
 const LEGACY_SKILL_PREFIX = "lovstudio-";
 const ALL_SKILLS_NAMES = new Set(["*", "all", "skills", GALLERY]);
-const CATALOG_URL = process.env.LOVSTUDIO_SKILLS_CATALOG_URL ||
-  `https://api.github.com/repos/${GALLERY}/contents/skills.yaml?ref=main`;
+const CATALOG_SOURCES = process.env.LOVSTUDIO_SKILLS_CATALOG_URL
+  ? [process.env.LOVSTUDIO_SKILLS_CATALOG_URL]
+  : [
+      // The API reflects a push immediately but allows only 60 anonymous
+      // requests per hour per IP, which a shared NAT can exhaust. The CDN
+      // copies lag by minutes (raw) to hours (jsDelivr) and are not rate limited.
+      `https://api.github.com/repos/${GALLERY}/contents/skills.yaml?ref=main`,
+      `https://raw.githubusercontent.com/${GALLERY}/main/skills.yaml`,
+      `https://cdn.jsdelivr.net/gh/${GALLERY}@main/skills.yaml`,
+    ];
 const WEB_URL = (process.env.LOVSTUDIO_WEB_URL || "https://lovstudio.ai").replace(/\/$/, "");
 
 function isAllSkillsName(name) {
@@ -58,27 +66,48 @@ async function requireAccountToken() {
   }
 }
 
-async function loadCatalog() {
-  const response = await hfetch(CATALOG_URL, {
-    headers: { accept: "application/vnd.github+json, text/yaml, text/plain" },
+function catalogRequestHeaders(url) {
+  // The raw media type makes the API return the file itself instead of base64
+  // JSON, which GitHub leaves empty once the file passes 1 MB.
+  const headers = { accept: "application/vnd.github.raw+json, text/yaml, text/plain" };
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  // Only GitHub's API receives the token; mirrors and custom URLs never see it.
+  if (token && new URL(url).hostname === "api.github.com") {
+    headers.authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+async function fetchCatalogSource(url) {
+  const response = await hfetch(url, {
+    headers: catalogRequestHeaders(url),
     signal: AbortSignal.timeout(15_000),
   });
-  if (!response.ok) {
-    throw new Error(`catalog request failed: HTTP ${response.status}`);
-  }
-  const contentType = response.headers.get("content-type") || "";
-  let text;
-  if (contentType.includes("application/json")) {
-    const payload = await response.json();
-    if (typeof payload?.content !== "string") {
-      throw new Error("GitHub API catalog response has no encoded content");
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const data = parseYaml(await response.text());
+  // A blocked or hijacked mirror can answer 200 with an HTML page; that must
+  // not pass as an empty catalog.
+  if (!Array.isArray(data?.skills)) throw new Error("response is not a skills catalog");
+  return data.skills.filter((skill) => !skill.test);
+}
+
+// Every source serves the same public file, so the first one that answers
+// wins. Callers still refuse to install when all of them fail.
+export async function loadCatalog(sources = CATALOG_SOURCES) {
+  const failures = [];
+  for (const url of sources) {
+    try {
+      const skills = await fetchCatalogSource(url);
+      if (failures.length) {
+        console.error(`Lovstudio Skills 目录改用 ${new URL(url).host} 读取（${failures.join("; ")}）。`);
+      }
+      return skills;
+    } catch (error) {
+      const cause = error?.cause?.code ? ` (${error.cause.code})` : "";
+      failures.push(`${new URL(url).host} ${error instanceof Error ? error.message : String(error)}${cause}`);
     }
-    text = Buffer.from(payload.content, "base64").toString("utf8");
-  } else {
-    text = await response.text();
   }
-  const data = parseYaml(text) || {};
-  return Array.isArray(data.skills) ? data.skills.filter((skill) => !skill.test) : [];
+  throw new Error(`catalog request failed: ${failures.join("; ")}`);
 }
 
 export function canonicalSkillName(name) {
