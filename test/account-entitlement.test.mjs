@@ -33,7 +33,6 @@ function run(args, env) {
         https_proxy: "",
         http_proxy: "",
         LOVSTUDIO_NO_BROWSER: "1",
-        LOVSTUDIO_SKIP_LOCAL_LICENSE: "1",
         ...env,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -178,8 +177,8 @@ test("account disconnect revokes the website session and removes the shared loca
   }
 });
 
-test("an already-owned website Skill installs without purchase confirmation or purchase mutation", async () => {
-  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-account-owned-"));
+async function paidFixture(prefix) {
+  const fixture = await mkdtemp(join(tmpdir(), prefix));
   const home = join(fixture, ".lovstudio");
   const bin = join(fixture, "bin");
   await mkdir(home, { recursive: true });
@@ -194,14 +193,32 @@ test("an already-owned website Skill installs without purchase confirmation or p
       email: "buyer@example.com",
     }),
   );
+  // $4 is the install source passed to `npx -y skills@latest add <source>`.
   const npx = join(bin, "npx");
-  await writeFile(npx, "#!/bin/sh\necho \"MOCK_NPX:$*\"\n");
+  await writeFile(npx, "#!/bin/sh\necho \"MOCK_NPX:$*\"\ncat \"$4/SKILL.md\"\n");
   await chmod(npx, 0o755);
+
+  // A GitHub-style archive: one top-level directory, the Skill under src/.
+  const repo = join(fixture, "archive", "lovstudio-write-professional-book-skill-abc123");
+  await mkdir(join(repo, "src"), { recursive: true });
+  await writeFile(join(repo, "README.md"), "# root readme\n");
+  await writeFile(join(repo, "src", "SKILL.md"), "---\nname: lov-write-professional-book\n---\nPLAIN_SOURCE_MARKER\n");
+  const tarball = join(fixture, "source.tar.gz");
+  const tar = spawn("tar", ["-czf", tarball, "-C", join(fixture, "archive"), "lovstudio-write-professional-book-skill-abc123"]);
+  await new Promise((resolve, reject) => tar.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`tar ${code}`)))));
+  return { home, bin, tarball: await readFile(tarball) };
+}
+
+const paidCatalog = `skills:\n- name: write-professional-book\n  runtime_name: lov-write-professional-book\n  repo: lovstudio/write-professional-book-skill\n  skill_path: src\n  paid: true\n`;
+
+test("an already-owned paid Skill downloads its private source and installs plain files", async () => {
+  const { home, bin, tarball } = await paidFixture("lovstudio-account-owned-");
   let purchaseCalls = 0;
+  let downloadAuth = null;
   const api = await listen(async (req, res) => {
     if (req.url === "/skills.yaml") {
       res.writeHead(200, { "content-type": "text/yaml" });
-      return res.end(`skills:\n- name: write-professional-book\n  runtime_name: lov-write-professional-book\n  paid: true\n  encrypted_bundle: true\n`);
+      return res.end(paidCatalog);
     }
     if (req.url?.startsWith("/api/skills/price")) {
       assert.equal(req.headers.authorization, "Bearer valid-access-token");
@@ -218,6 +235,21 @@ test("an already-owned website Skill installs without purchase confirmation or p
       purchaseCalls += 1;
       return json(res, 500, { error: "must_not_purchase" });
     }
+    if (req.url === "/api/skills/download") {
+      downloadAuth = req.headers.authorization;
+      return json(res, 200, {
+        skill_name: "write-professional-book",
+        runtime_name: "lov-write-professional-book",
+        version: "0.4.1",
+        ref: "v0.4.1",
+        skill_path: "src",
+        download_url: `${api.baseUrl}/codeload/archive.tar.gz?token=tmp`,
+      });
+    }
+    if (req.url?.startsWith("/codeload/")) {
+      res.writeHead(200, { "content-type": "application/x-gzip" });
+      return res.end(tarball);
+    }
     return json(res, 404, { error: "not_found" });
   });
   try {
@@ -232,58 +264,34 @@ test("an already-owned website Skill installs without purchase confirmation or p
     );
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /网站账号已拥有.*直接安装/);
-    assert.match(result.stdout, /MOCK_NPX:.*--skill lov-write-professional-book/);
+    assert.match(result.stdout, /已下载「write-professional-book」 v0\.4\.1（v0\.4\.1）/);
+    const source = result.stdout.match(/MOCK_NPX:-y skills@latest add (\S+) --skill lov-write-professional-book/)?.[1];
+    assert.ok(source?.endsWith("/src"), result.stdout);
+    assert.match(result.stdout, /PLAIN_SOURCE_MARKER/);
+    assert.equal(downloadAuth, "Bearer valid-access-token");
     assert.equal(purchaseCalls, 0);
+    await assert.rejects(stat(source), { code: "ENOENT" });
   } finally {
     await api.close();
   }
 });
 
-test("an already-owned public-source paid Skill installs from its source repository", async () => {
-  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-account-public-source-"));
-  const home = join(fixture, ".lovstudio");
-  const bin = join(fixture, "bin");
-  await mkdir(home, { recursive: true });
-  await mkdir(bin, { recursive: true });
-  await writeFile(
-    join(home, "auth.yml"),
-    stringifyYaml({
-      access_token: "valid-access-token",
-      refresh_token: "valid-refresh-token",
-      expires_at: Math.floor(Date.now() / 1000) + 3600,
-      user_id: "user-123",
-      email: "buyer@example.com",
-    }),
-  );
-  const npx = join(bin, "npx");
-  await writeFile(npx, "#!/bin/sh\necho \"MOCK_NPX:$*\"\n");
-  await chmod(npx, 0o755);
-  let purchaseCalls = 0;
+test("a paid Skill is not installed when the download is refused", async () => {
+  const { home, bin } = await paidFixture("lovstudio-account-refused-");
   const api = await listen(async (req, res) => {
     if (req.url === "/skills.yaml") {
       res.writeHead(200, { "content-type": "text/yaml" });
-      return res.end(`skills:\n- name: media-creator\n  runtime_name: lov-media-creator\n  repo: lovstudio/media-creator-skill\n  paid: true\n  public_source: true\n`);
+      return res.end(paidCatalog);
     }
     if (req.url?.startsWith("/api/skills/price")) {
-      assert.equal(req.headers.authorization, "Bearer valid-access-token");
-      return json(res, 200, {
-        skill_id: 637,
-        skill_name: "media-creator",
-        price_credits: 1394,
-        list_price_credits: 1394,
-        discount_percent: 0,
-        owned: true,
-      });
+      return json(res, 200, { skill_id: 7, skill_name: "write-professional-book", price_credits: 100, owned: true });
     }
-    if (req.url === "/api/skills/purchase") {
-      purchaseCalls += 1;
-      return json(res, 500, { error: "must_not_purchase" });
-    }
+    if (req.url === "/api/skills/download") return json(res, 403, { error: "skill_not_owned" });
     return json(res, 404, { error: "not_found" });
   });
   try {
     const result = await run(
-      ["skills", "add", "media-creator", "-g", "-a", "codex", "-y"],
+      ["skills", "add", "write-professional-book", "-g", "-a", "codex", "-y"],
       {
         LOVSTUDIO_HOME: home,
         LOVSTUDIO_WEB_URL: api.baseUrl,
@@ -291,65 +299,9 @@ test("an already-owned public-source paid Skill installs from its source reposit
         PATH: `${bin}${delimiter}${process.env.PATH}`,
       },
     );
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /网站账号已拥有.*直接安装/);
-    assert.match(
-      result.stdout,
-      /MOCK_NPX:.*add lovstudio\/media-creator-skill .*--skill lov-media-creator/,
-    );
-    assert.equal(purchaseCalls, 0);
-  } finally {
-    await api.close();
-  }
-});
-
-test("a local license entitlement installs a paid Skill without account or Credits requests", async () => {
-  const fixture = await mkdtemp(join(tmpdir(), "lovstudio-local-license-owned-"));
-  const home = join(fixture, ".lovstudio");
-  const bin = join(fixture, "bin");
-  await mkdir(home, { recursive: true });
-  await mkdir(bin, { recursive: true });
-
-  const uvx = join(bin, "uvx");
-  await writeFile(
-    uvx,
-    "#!/bin/sh\nprintf '%s\\n' '{\"activated\":true,\"licenses\":[{\"entitled_skills\":[\"media-creator\"]}]}'\n",
-  );
-  await chmod(uvx, 0o755);
-  const npx = join(bin, "npx");
-  await writeFile(npx, "#!/bin/sh\necho \"MOCK_NPX:$*\"\n");
-  await chmod(npx, 0o755);
-
-  let priceCalls = 0;
-  let purchaseCalls = 0;
-  const api = await listen(async (req, res) => {
-    if (req.url === "/skills.yaml") {
-      res.writeHead(200, { "content-type": "text/yaml" });
-      return res.end(`skills:\n- name: media-creator\n  runtime_name: lov-media-creator\n  repo: lovstudio/media-creator-skill\n  paid: true\n  public_source: true\n`);
-    }
-    if (req.url?.startsWith("/api/skills/price")) priceCalls += 1;
-    if (req.url === "/api/skills/purchase") purchaseCalls += 1;
-    return json(res, 500, { error: "must_not_call_account_or_credits" });
-  });
-  try {
-    const result = await run(
-      ["skills", "add", "media-creator", "-g", "-a", "codex", "-y"],
-      {
-        LOVSTUDIO_HOME: home,
-        LOVSTUDIO_WEB_URL: api.baseUrl,
-        LOVSTUDIO_SKILLS_CATALOG_URL: `${api.baseUrl}/skills.yaml`,
-        LOVSTUDIO_SKIP_LOCAL_LICENSE: "0",
-        PATH: `${bin}${delimiter}${process.env.PATH}`,
-      },
-    );
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /本机 license 已授权.*不需要 Credits/);
-    assert.match(
-      result.stdout,
-      /MOCK_NPX:.*add lovstudio\/media-creator-skill .*--skill lov-media-creator/,
-    );
-    assert.equal(priceCalls, 0);
-    assert.equal(purchaseCalls, 0);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /获取「write-professional-book」的下载地址失败：skill_not_owned/);
+    assert.doesNotMatch(result.stdout, /MOCK_NPX/);
   } finally {
     await api.close();
   }
