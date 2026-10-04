@@ -1,5 +1,11 @@
 # lovstudio
 
+## 0.5.0
+
+### Minor Changes
+
+- Paid Skills now install as plain source. After the account's ownership is confirmed (Credits purchase or an activated license bound to the account), `skills add` requests the Skill's archive from lovstudio.ai, extracts it, and installs the files directly; the encrypted-bundle and public-source delivery paths and the local helper license probe are gone. Reinstalling a paid Skill with the same command replaces an older encrypted install.
+
 ## 0.4.28
 
 ### Patch Changes

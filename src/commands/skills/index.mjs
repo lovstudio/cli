@@ -1,12 +1,12 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { parse as parseYaml } from "yaml";
 import { hasBin, runCapture, runInherit } from "../../lib/exec.mjs";
 import { hfetch } from "../../lib/fetch.mjs";
-import { runHelper, UVX_PREFIX } from "../../lib/helper.mjs";
+import { runHelper } from "../../lib/helper.mjs";
 import { AccountError, requireAccountSession } from "../../lib/account.mjs";
 
 const GALLERY = "lovstudio/skills";
@@ -155,19 +155,19 @@ export function catalogSkillDependencyClosure(catalog, rootSkill) {
 export function catalogSkillInstallPlans(skills) {
   const plans = [];
   for (const skill of skills) {
-    const source = skill?.paid ? paidSkillInstallSource(skill) : GALLERY_INSTALL_SOURCE;
-    if (!source) {
-      throw new Error(
-        `Skill「${skill?.name || "unknown"}」已标记为付费，但聚合目录还没有可分发的加密包。`,
-      );
-    }
     const selector = catalogSkillSelector(skill);
+    if (skill?.paid) {
+      // Paid sources are private; each one is downloaded on its own once the
+      // account's entitlement is confirmed.
+      plans.push({ paid: true, source: null, selectors: [selector], skills: [skill] });
+      continue;
+    }
     const current = plans.at(-1);
-    if (current?.source === source) {
+    if (current && !current.paid) {
       current.selectors.push(selector);
       current.skills.push(skill);
     } else {
-      plans.push({ source, selectors: [selector], skills: [skill] });
+      plans.push({ paid: false, source: GALLERY_INSTALL_SOURCE, selectors: [selector], skills: [skill] });
     }
   }
   return plans;
@@ -221,52 +221,10 @@ async function confirmPurchase(name, price, yes) {
   }
 }
 
-export function paidSkillInstallSource(skill) {
-  if (skill?.encrypted_bundle) return GALLERY_INSTALL_SOURCE;
-  if (skill?.public_source && String(skill?.repo || "").trim()) {
-    return String(skill.repo).trim();
-  }
-  return null;
-}
-
-export function licenseStatusEntitlesSkill(status, skillName) {
-  const canonical = canonicalSkillName(skillName);
-  return Array.isArray(status?.licenses) && status.licenses.some((license) =>
-    Array.isArray(license?.entitled_skills) &&
-    license.entitled_skills.some((name) => canonicalSkillName(name) === canonical)
-  );
-}
-
-function readLocalLicenseStatus() {
-  if (process.env.LOVSTUDIO_SKIP_LOCAL_LICENSE === "1" || !hasBin("uvx")) return null;
-  const result = runCapture("uvx", [...UVX_PREFIX, "status", "--json"]);
-  if (result.status !== 0) return null;
-  try {
-    return JSON.parse(result.stdout);
-  } catch {
-    return null;
-  }
-}
-
-function localLicenseEntitlesSkill(skillName) {
-  let status = readLocalLicenseStatus();
-  if (licenseStatusEntitlesSkill(status, skillName)) return true;
-  if (!status?.activated) return false;
-
-  // Dynamic all licenses learn about newly listed Skills on heartbeat. Ignore
-  // refresh failures here so account ownership remains a safe fallback.
-  runCapture("uvx", [...UVX_PREFIX, "heartbeat"]);
-  status = readLocalLicenseStatus();
-  return licenseStatusEntitlesSkill(status, skillName);
-}
-
-async function redeemPaidSkill(skill, yes) {
-  if (localLicenseEntitlesSkill(skill.name)) {
-    console.log(`✓ 本机 license 已授权「${skill.name}」，直接安装，不需要 Credits。`);
-    return;
-  }
-
-  const token = await requireAccountToken();
+// Owning a paid Skill — a Credits purchase or a license bound to the account —
+// is what the download endpoint checks, so this only has to make sure the
+// account owns it before the archive is requested.
+async function redeemPaidSkill(skill, yes, token) {
   let price;
   try {
     price = await fetchRedemptionPrice(skill.name, token);
@@ -307,6 +265,62 @@ async function redeemPaidSkill(skill, yes) {
   }
   const balance = typeof body.remaining_balance === "number" ? `，余额 ${body.remaining_balance} Credits` : "";
   console.log(body.already_owned ? `✓ 已拥有「${skill.name}」，无需重复扣除 Credits${balance}。` : `✓ 已兑换「${skill.name}」${balance}。`);
+}
+
+export async function locateExtractedSkill(root, skillPath = "") {
+  const entries = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory());
+  if (entries.length !== 1) throw new Error(`unexpected archive layout (${entries.length} top-level directories)`);
+  const dir = join(root, entries[0].name, skillPath || "");
+  if (!existsSync(join(dir, "SKILL.md"))) {
+    throw new Error(`SKILL.md not found at ${skillPath || "the repository root"}`);
+  }
+  return dir;
+}
+
+// Paid Skill sources live in private repositories. The website checks the
+// account's entitlement and returns a short-lived archive URL; the installed
+// copy is plain source.
+async function downloadPaidSkill(skill, token) {
+  const response = await hfetch(`${WEB_URL}/api/skills/download`, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ skill_name: skill.name }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || typeof body.download_url !== "string") {
+    console.error(`获取「${skill.name}」的下载地址失败：${body.error || `HTTP ${response.status}`}`);
+    process.exit(1);
+  }
+
+  const archive = await hfetch(body.download_url, { signal: AbortSignal.timeout(180_000) });
+  if (!archive.ok) {
+    console.error(`下载「${skill.name}」失败：HTTP ${archive.status}`);
+    process.exit(1);
+  }
+  const workDir = await mkdtemp(join(tmpdir(), "lovstudio-skill-"));
+  const tarball = join(workDir, "source.tar.gz");
+  const extracted = join(workDir, "source");
+  await writeFile(tarball, Buffer.from(await archive.arrayBuffer()));
+  await mkdir(extracted);
+  const untar = runCapture("tar", ["-xzf", tarball, "-C", extracted]);
+  if (untar.status !== 0) {
+    await rm(workDir, { recursive: true, force: true });
+    console.error(`解压「${skill.name}」失败：${untar.stderr || `tar exited ${untar.status}`}`);
+    process.exit(1);
+  }
+  try {
+    const skillDir = await locateExtractedSkill(extracted, body.skill_path);
+    return { workDir, skillDir, version: body.version, ref: body.ref };
+  } catch (error) {
+    await rm(workDir, { recursive: true, force: true });
+    console.error(`「${skill.name}」的源码包无法安装：${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -443,6 +457,7 @@ async function addAction(rawArgs) {
   const installAll = isAllSkillsName(args.name);
   let installPlans;
   let selectedSkills = [];
+  let accountToken = null;
   if (!installAll) {
     const { catalog, skill } = await resolveCatalogSkill(args.name);
     try {
@@ -453,12 +468,13 @@ async function addAction(rawArgs) {
       process.exit(1);
     }
     for (const selected of selectedSkills) {
-      if (selected.paid) await redeemPaidSkill(selected, args.yes);
+      if (!selected.paid) continue;
+      accountToken ??= await requireAccountToken();
+      await redeemPaidSkill(selected, args.yes, accountToken);
     }
   } else {
     // The aggregate command is intentionally free-only. Paid Skills must be
-    // redeemed one at a time so the user sees the exact Credits cost and the
-    // installer never pulls a paid delivery source before entitlement is confirmed.
+    // redeemed one at a time so the user sees the exact Credits cost.
     const selectors = await resolveFreeCatalogSelectors();
     installPlans = [{ source: GALLERY_INSTALL_SOURCE, selectors, skills: [] }];
   }
@@ -473,8 +489,17 @@ async function addAction(rawArgs) {
     : "";
   console.log(`Installing ${installAll ? "all free Lovstudio skills" : args.name}${dependencyLabel}...`);
   for (const plan of installPlans) {
+    let source = plan.source;
+    let workDir = null;
+    if (plan.paid) {
+      const download = await downloadPaidSkill(plan.skills[0], accountToken);
+      source = download.skillDir;
+      workDir = download.workDir;
+      const version = download.version ? ` v${download.version}` : "";
+      console.log(`✓ 已下载「${plan.skills[0].name}」${version}（${download.ref}）`);
+    }
     const skillArgs = [
-      "-y", SKILLS_NPX_SPEC, "add", plan.source,
+      "-y", SKILLS_NPX_SPEC, "add", source,
       "--skill", ...plan.selectors,
     ];
     if (args.agent) skillArgs.push("-a", args.agent);
@@ -483,6 +508,7 @@ async function addAction(rawArgs) {
     skillArgs.push(...args.extra);
 
     const installCode = runInherit("npx", skillArgs);
+    if (workDir) await rm(workDir, { recursive: true, force: true });
     if (installCode !== 0) {
       console.error(`\nnpx skills add exited ${installCode}`);
       process.exit(installCode);
@@ -548,9 +574,9 @@ Options for \`add\`:
       --with-deps      auto-install missing executable deps declared in SKILL.md
 
 \`add\` installs from ${GALLERY} (no need to type the gallery path). Free Skills
-install directly. A paid Skill must declare either an encrypted bundle or an
-explicit public-source delivery; the command signs in and redeems its Credits
-before downloading from that source. Passing \`skills\`, \`all\`,
+install directly. A paid Skill signs in, redeems its Credits unless the account
+already owns it (purchase or bound license), then downloads its source from
+lovstudio.ai and installs it as plain files. Passing \`skills\`, \`all\`,
 \`*\`, or \`${GALLERY}\` installs all free entries; paid entries are added one at a time after redemption. Single-skill installs
 automatically include the catalog's transitive \`depends_on\` Skill closure, then
 read each installed Skill's executable \`dependencies:\` frontmatter and run its

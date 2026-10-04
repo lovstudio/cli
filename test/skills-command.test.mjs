@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -7,8 +10,7 @@ import {
   catalogSkillSelector,
   canonicalSkillName,
   findCatalogSkill,
-  licenseStatusEntitlesSkill,
-  paidSkillInstallSource,
+  locateExtractedSkill,
   skillSelector,
 } from "../src/commands/skills/index.mjs";
 
@@ -42,30 +44,23 @@ test("catalogSkillDependencyClosure rejects missing and cyclic dependencies", ()
   );
 });
 
-test("catalogSkillInstallPlans groups adjacent selectors by delivery source", () => {
+test("catalogSkillInstallPlans groups free Skills and downloads each paid Skill on its own", () => {
   const freeBrand = { name: "branding-consistency", runtime_name: "lov-branding-consistency", paid: false };
   const freeHuman = { name: "human-writing", runtime_name: "lov-human-writing", paid: false };
-  const paidPublic = {
-    name: "public-paid",
-    runtime_name: "lov-public-paid",
-    paid: true,
-    public_source: true,
-    repo: "lovstudio/public-paid-skill",
-  };
+  const paidA = { name: "proposal", runtime_name: "lov-proposal", paid: true };
+  const paidB = { name: "event-poster", runtime_name: "lov-event-poster", paid: true };
 
   assert.deepEqual(
-    catalogSkillInstallPlans([freeBrand, freeHuman, paidPublic]),
+    catalogSkillInstallPlans([freeBrand, freeHuman, paidA, paidB]),
     [
       {
+        paid: false,
         source: "https://github.com/lovstudio/skills.git",
         selectors: ["lov-branding-consistency", "lov-human-writing"],
         skills: [freeBrand, freeHuman],
       },
-      {
-        source: "lovstudio/public-paid-skill",
-        selectors: ["lov-public-paid"],
-        skills: [paidPublic],
-      },
+      { paid: true, source: null, selectors: ["lov-proposal"], skills: [paidA] },
+      { paid: true, source: null, selectors: ["lov-event-poster"], skills: [paidB] },
     ],
   );
 });
@@ -128,31 +123,11 @@ test("findCatalogSkill accepts both product slugs and exact runtime names", () =
   assert.equal(findCatalogSkill(catalog, "lov-legacy-entry"), catalog[3]);
 });
 
-test("paidSkillInstallSource distinguishes encrypted and public-source delivery", () => {
-  assert.equal(
-    paidSkillInstallSource({ paid: true, encrypted_bundle: true }),
-    "https://github.com/lovstudio/skills.git",
-  );
-  assert.equal(
-    paidSkillInstallSource({
-      paid: true,
-      public_source: true,
-      repo: "lovstudio/media-creator-skill",
-    }),
-    "lovstudio/media-creator-skill",
-  );
-  assert.equal(paidSkillInstallSource({ paid: true }), null);
-  assert.equal(paidSkillInstallSource({ paid: true, public_source: true }), null);
-});
+test("locateExtractedSkill resolves the Skill directory inside a GitHub archive", async () => {
+  const root = await mkdtemp(join(tmpdir(), "lovstudio-extract-"));
+  await mkdir(join(root, "lovstudio-proposal-skill-abc", "src"), { recursive: true });
+  await writeFile(join(root, "lovstudio-proposal-skill-abc", "src", "SKILL.md"), "---\nname: lov-proposal\n---\n");
 
-test("licenseStatusEntitlesSkill accepts catalog and runtime aliases", () => {
-  const status = {
-    licenses: [
-      { entitled_skills: ["lov-media-creator", "lovstudio-write-professional-book"] },
-    ],
-  };
-  assert.equal(licenseStatusEntitlesSkill(status, "media-creator"), true);
-  assert.equal(licenseStatusEntitlesSkill(status, "lovstudio:write-professional-book"), true);
-  assert.equal(licenseStatusEntitlesSkill(status, "subtitle-freedom"), false);
-  assert.equal(licenseStatusEntitlesSkill({ activated: true }, "media-creator"), false);
+  assert.equal(await locateExtractedSkill(root, "src"), join(root, "lovstudio-proposal-skill-abc", "src"));
+  await assert.rejects(locateExtractedSkill(root, ""), /SKILL\.md not found at the repository root/);
 });

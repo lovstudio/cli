@@ -94,7 +94,7 @@ npx -y lovstudio@latest account connect
 npx -y lovstudio@latest skills add any2pdf
 
 # Install a paid Skill (the command signs in, checks ownership, then downloads
-# its declared encrypted bundle or public source)
+# its source from lovstudio.ai)
 npx -y lovstudio@latest skills add subtitle-freedom
 
 # Install a skill + preflight its runtime deps, auto-installing any that are missing
@@ -108,18 +108,16 @@ npx -y lovstudio@latest skills list
 ```
 
 `skills add` reads the unified `lovstudio/skills` catalog before installation.
-Free Skills install directly. Paid Skills must declare either an encrypted
-bundle or an explicit public-source delivery. The CLI first refreshes and checks
-an activated local license, including dynamic `all` access; a matching license
-installs without Credits. Otherwise it connects this device to the user's
-Lovstudio website account and checks that account's current ownership: a Skill
-already purchased on the website installs immediately without another Credits
-confirmation or purchase request. For a Skill not yet owned, the CLI confirms
-the current Credits price and completes the redemption before downloading from
-the declared source. Encrypted placeholders use the same account entitlement at
-runtime, so no activation key is needed and protected plaintext is not written
-to disk. Public-source paid Skills remain openly inspectable and install from
-their catalog-declared repository after the same ownership check.
+Free Skills install directly. For a paid Skill the CLI connects this device to
+the user's Lovstudio website account and checks that account's ownership: a
+Credits purchase or an activated license bound to the account (including dynamic
+`all` access) installs immediately without another Credits confirmation. For a
+Skill not yet owned, the CLI confirms the current Credits price and completes the
+redemption first. It then asks lovstudio.ai for the Skill's source archive, which
+the website only grants to owners, and installs the files as-is: paying controls
+who can download a paid Skill, and the installed copy has no encryption or
+runtime checks. Reinstalling with the same command replaces an older encrypted
+install.
 
 The command automatically installs the selected Skill's transitive Skill
 dependencies from the catalog's `depends_on` graph. It then resolves each
