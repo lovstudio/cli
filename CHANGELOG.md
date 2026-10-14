@@ -1,5 +1,13 @@
 # lovstudio
 
+## 0.5.1
+
+### Patch Changes
+
+- Install paid Skills through VIP Membership and existing account-bound ownership: check `/api/membership?skill=<name>` before the private source download, without the removed price or purchase endpoints and without per-Skill Credits spending.
+- Direct accounts without access to `/vip?from=skill:<name>`; preserve free installs, license activation and session refresh, and report expired sessions or refused downloads without installing.
+- Add HTTP mock regressions for active VIP, existing ownership, denied/guest accounts, expired or rejected sessions, refused downloads and free Skills.
+
 ## 0.5.0
 
 ### Minor Changes

@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline/promises";
 import { parse as parseYaml } from "yaml";
 import { hasBin, runCapture, runInherit } from "../../lib/exec.mjs";
 import { hfetch } from "../../lib/fetch.mjs";
@@ -193,78 +192,45 @@ async function resolveFreeCatalogSelectors() {
   return selectors;
 }
 
-async function fetchRedemptionPrice(name, token) {
-  const url = `${WEB_URL}/api/skills/price?name=${encodeURIComponent(name)}`;
-  const response = await hfetch(url, {
-    headers: { authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(15_000),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || typeof body.price_credits !== "number") {
-    throw new Error(body.error || `price request failed: HTTP ${response.status}`);
-  }
-  return body;
+function membershipUpgradeUrl(name) {
+  return `${WEB_URL}/vip?from=skill:${encodeURIComponent(name)}`;
 }
 
-async function confirmPurchase(name, price, yes) {
-  if (yes) return true;
-  if (!process.stdin.isTTY) {
-    console.error(`付费 Skill 需要确认兑换 ${price.price_credits} Credits；非交互环境请追加 --yes。`);
-    return false;
-  }
-  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+// The membership endpoint includes active VIP access and existing account-bound
+// licenses. The download endpoint remains the final entitlement authority.
+async function requirePaidSkillEntitlement(skill, token) {
+  let response;
+  let body;
   try {
-    const answer = await prompt.question(`「${name}」需要 ${price.price_credits} Credits，继续兑换并安装吗？[y/N] `);
-    return /^y(es)?$/i.test(answer.trim());
-  } finally {
-    prompt.close();
-  }
-}
-
-// Owning a paid Skill — a Credits purchase or a license bound to the account —
-// is what the download endpoint checks, so this only has to make sure the
-// account owns it before the archive is requested.
-async function redeemPaidSkill(skill, yes, token) {
-  let price;
-  try {
-    price = await fetchRedemptionPrice(skill.name, token);
+    response = await hfetch(`${WEB_URL}/api/membership?skill=${encodeURIComponent(skill.name)}`, {
+      headers: { accept: "application/json", authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    body = await response.json().catch(() => ({}));
   } catch (error) {
-    console.error(`读取「${skill.name}」的 Credits 兑换价失败：${error instanceof Error ? error.message : String(error)}`);
-    console.error("价格未确认前不会安装付费 Skill。");
+    console.error(`确认「${skill.name}」的会员权益失败：${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
-  if (price.owned === true) {
-    console.log(`✓ 网站账号已拥有「${skill.name}」，直接安装，不会再次确认或扣除 Credits。`);
-    return;
+  if (response.status === 401) {
+    console.error("Lovstudio 登录状态已失效，请重新连接网站账号后重试。");
+    process.exit(1);
   }
-  if (!(await confirmPurchase(skill.name, price, yes))) {
-    console.log("已取消兑换，未安装付费 Skill。");
-    process.exit(0);
-  }
-  const response = await hfetch(`${WEB_URL}/api/skills/purchase`, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ skill_name: skill.name }),
-    signal: AbortSignal.timeout(20_000),
-  });
-  const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    if (response.status === 402) {
-      console.error(`Credits 余额不足，需要 ${price.price_credits} Credits。`);
-      console.error(`充值后重新运行：npx -y lovstudio@latest skills add ${skill.name}`);
-    } else if (response.status === 401) {
-      console.error("Lovstudio 登录状态已失效，请重新运行命令完成登录。 ");
-    } else {
-      console.error(`兑换「${skill.name}」失败：${body.error || `HTTP ${response.status}`}`);
-    }
+    console.error(`确认「${skill.name}」的会员权益失败：${body.error || `HTTP ${response.status}`}`);
     process.exit(1);
   }
-  const balance = typeof body.remaining_balance === "number" ? `，余额 ${body.remaining_balance} Credits` : "";
-  console.log(body.already_owned ? `✓ 已拥有「${skill.name}」，无需重复扣除 Credits${balance}。` : `✓ 已兑换「${skill.name}」${balance}。`);
+  if (body.skill?.name !== skill.name) {
+    console.error(`「${skill.name}」的会员权益响应未匹配请求，未安装。`);
+    process.exit(1);
+  }
+  if (body.skill?.owned !== true) {
+    console.error(`「${skill.name}」包含在 Lovstudio.AI VIP Membership 中，当前账号没有安装权益。`);
+    console.error(`开通会员后重新安装：${membershipUpgradeUrl(skill.name)}`);
+    process.exit(1);
+  }
+  console.log(body.membership?.active === true
+    ? `✓ VIP Membership 已生效，「${skill.name}」直接安装，不另收费。`
+    : `✓ 网站账号已拥有「${skill.name}」，直接安装，不另收费。`);
 }
 
 export async function locateExtractedSkill(root, skillPath = "") {
@@ -293,7 +259,12 @@ async function downloadPaidSkill(skill, token) {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || typeof body.download_url !== "string") {
-    console.error(`获取「${skill.name}」的下载地址失败：${body.error || `HTTP ${response.status}`}`);
+    if (response.status === 401) {
+      console.error("Lovstudio 登录状态已失效，请重新连接网站账号后重试。");
+    } else {
+      console.error(`获取「${skill.name}」的下载地址失败：${body.error || `HTTP ${response.status}`}`);
+      if (response.status === 403) console.error(`查看会员权益：${membershipUpgradeUrl(skill.name)}`);
+    }
     process.exit(1);
   }
 
@@ -442,7 +413,7 @@ async function addAction(rawArgs) {
   }
 
   // 1. Keep the legacy license-key option for existing users. New paid Skills
-  //    use the Lovstudio account + Credits path below.
+  //    use the Lovstudio account membership/ownership path below.
   if (args.key) {
     const code = runHelper(["activate", args.key]);
     if (code !== 0) {
@@ -452,7 +423,7 @@ async function addAction(rawArgs) {
   }
 
   // 2. Resolve the unified catalog before installing a single Skill. This is
-  //    also the paid gate: purchase/login completes before npx downloads from
+  //    also the paid gate: entitlement/login completes before npx downloads from
   //    the delivery source declared by the catalog.
   const installAll = isAllSkillsName(args.name);
   let installPlans;
@@ -470,11 +441,11 @@ async function addAction(rawArgs) {
     for (const selected of selectedSkills) {
       if (!selected.paid) continue;
       accountToken ??= await requireAccountToken();
-      await redeemPaidSkill(selected, args.yes, accountToken);
+      await requirePaidSkillEntitlement(selected, accountToken);
     }
   } else {
-    // The aggregate command is intentionally free-only. Paid Skills must be
-    // redeemed one at a time so the user sees the exact Credits cost.
+    // The aggregate command is intentionally free-only. Membership Skills are
+    // added individually after checking account entitlements.
     const selectors = await resolveFreeCatalogSelectors();
     installPlans = [{ source: GALLERY_INSTALL_SOURCE, selectors, skills: [] }];
   }
@@ -574,10 +545,11 @@ Options for \`add\`:
       --with-deps      auto-install missing executable deps declared in SKILL.md
 
 \`add\` installs from ${GALLERY} (no need to type the gallery path). Free Skills
-install directly. A paid Skill signs in, redeems its Credits unless the account
-already owns it (purchase or bound license), then downloads its source from
-lovstudio.ai and installs it as plain files. Passing \`skills\`, \`all\`,
-\`*\`, or \`${GALLERY}\` installs all free entries; paid entries are added one at a time after redemption. Single-skill installs
+install directly. A paid Skill signs in, checks VIP Membership or existing
+account-bound ownership, then downloads its source from lovstudio.ai and installs
+it as plain files. Accounts without access are directed to VIP Membership;
+there is no per-Skill Credits redemption. Passing \`skills\`, \`all\`,
+\`*\`, or \`${GALLERY}\` installs all free entries; paid entries are added individually after entitlement checks. Single-skill installs
 automatically include the catalog's transitive \`depends_on\` Skill closure, then
 read each installed Skill's executable \`dependencies:\` frontmatter and run its
 \`check\` commands. With --with-deps, missing executable dependencies are installed automatically.
