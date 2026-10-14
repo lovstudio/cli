@@ -220,15 +220,11 @@ test("an already-owned paid Skill downloads its private source and installs plai
       res.writeHead(200, { "content-type": "text/yaml" });
       return res.end(paidCatalog);
     }
-    if (req.url?.startsWith("/api/skills/price")) {
+    if (req.url?.startsWith("/api/membership?skill=")) {
       assert.equal(req.headers.authorization, "Bearer valid-access-token");
       return json(res, 200, {
-        skill_id: 7,
-        skill_name: "write-professional-book",
-        price_credits: 100,
-        list_price_credits: 100,
-        discount_percent: 0,
-        owned: true,
+        membership: null,
+        skill: { name: "write-professional-book", owned: true },
       });
     }
     if (req.url === "/api/skills/purchase") {
@@ -283,8 +279,8 @@ test("a paid Skill is not installed when the download is refused", async () => {
       res.writeHead(200, { "content-type": "text/yaml" });
       return res.end(paidCatalog);
     }
-    if (req.url?.startsWith("/api/skills/price")) {
-      return json(res, 200, { skill_id: 7, skill_name: "write-professional-book", price_credits: 100, owned: true });
+    if (req.url?.startsWith("/api/membership?skill=")) {
+      return json(res, 200, { membership: null, skill: { name: "write-professional-book", owned: true } });
     }
     if (req.url === "/api/skills/download") return json(res, 403, { error: "skill_not_owned" });
     return json(res, 404, { error: "not_found" });

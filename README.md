@@ -109,15 +109,14 @@ npx -y lovstudio@latest skills list
 
 `skills add` reads the unified `lovstudio/skills` catalog before installation.
 Free Skills install directly. For a paid Skill the CLI connects this device to
-the user's Lovstudio website account and checks that account's ownership: a
-Credits purchase or an activated license bound to the account (including dynamic
-`all` access) installs immediately without another Credits confirmation. For a
-Skill not yet owned, the CLI confirms the current Credits price and completes the
-redemption first. It then asks lovstudio.ai for the Skill's source archive, which
-the website only grants to owners, and installs the files as-is: paying controls
-who can download a paid Skill, and the installed copy has no encryption or
-runtime checks. Reinstalling with the same command replaces an older encrypted
-install.
+the user's Lovstudio website account and checks `/api/membership?skill=<name>`.
+An active VIP Membership or existing account-bound ownership (including licenses
+with dynamic `all` access) installs immediately. Accounts without access receive
+a `/vip?from=skill:<name>` link instead of a per-Skill Credits purchase. The CLI
+then asks lovstudio.ai for the Skill's source archive; the download endpoint
+verifies access again before granting a temporary URL. Files install as-is with
+no encryption or runtime checks. Reinstalling with the same command replaces an
+older encrypted install.
 
 The command automatically installs the selected Skill's transitive Skill
 dependencies from the catalog's `depends_on` graph. It then resolves each
