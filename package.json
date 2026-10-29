@@ -1,6 +1,6 @@
 {
   "name": "lovstudio",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Lovstudio CLI \u2014 install free Skills directly and access paid Skills with VIP Membership.",
   "type": "module",
   "packageManager": "npm@11.17.0",

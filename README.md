@@ -126,7 +126,8 @@ automatically via their declared `install` command.
 
 Under the hood:
 - `account connect` → browser device confirmation on `lovstudio.ai`; the shared session is stored owner-only under `~/.lovstudio/` for local Agent tools
-- `skills add <name>` → resolves the product slug in `skills.yaml`, then passes its exact `runtime_name` to `npx -y skills@latest add lovstudio/skills --skill <runtime_name>` (vercel-labs/skills)
+- `skills add <name>` → resolves the product slug in the catalog, fetches free Skills' `skills/<name>` directories with a partial sparse clone of `lovstudio/skills` (paid Skills download from lovstudio.ai), then passes their exact `runtime_name` to `npx -y skills@latest add <local copy> --skill <runtime_name>` (vercel-labs/skills). Reinstall with the same command to update
+- The catalog is read from `https://lovstudio.ai/api/skills/catalog` first, then from the GitHub API (authenticated with `GITHUB_TOKEN` / `GH_TOKEN` when set; anonymous calls share 60 requests per hour per IP), raw.githubusercontent.com and jsDelivr. `LOVSTUDIO_SKILLS_CATALOG_URL` replaces the whole chain. If no source answers, nothing is installed
 - `skills add skills` → resolves the unified catalog and passes every free Skill's exact `runtime_name`
 - `license *` → `uvx lovstudio-skill-helper *` (pinned version)
 

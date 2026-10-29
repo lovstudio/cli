@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -14,9 +14,23 @@ const SKILLS_NPX_SPEC = "skills@latest";
 const SKILL_PREFIX = "lov-";
 const LEGACY_SKILL_PREFIX = "lovstudio-";
 const ALL_SKILLS_NAMES = new Set(["*", "all", "skills", GALLERY]);
-const CATALOG_URL = process.env.LOVSTUDIO_SKILLS_CATALOG_URL ||
-  `https://api.github.com/repos/${GALLERY}/contents/skills.yaml?ref=main`;
+const GIT_ATTEMPTS = 3;
 const WEB_URL = (process.env.LOVSTUDIO_WEB_URL || "https://lovstudio.ai").replace(/\/$/, "");
+const CATALOG_SOURCES = process.env.LOVSTUDIO_SKILLS_CATALOG_URL
+  ? [process.env.LOVSTUDIO_SKILLS_CATALOG_URL]
+  : [
+      // About 20 KB with only the install fields, from the site that also
+      // serves entitlements and paid downloads. The GitHub API copy of
+      // skills.yaml is about 740 KB, which slow cross-border links cannot
+      // download within the timeout.
+      `${WEB_URL}/api/skills/catalog`,
+      // The API reflects a push immediately but allows only 60 anonymous
+      // requests per hour per IP, which a shared NAT can exhaust. The CDN
+      // copies lag by minutes (raw) to hours (jsDelivr) and are not rate limited.
+      `https://api.github.com/repos/${GALLERY}/contents/skills.yaml?ref=main`,
+      `https://raw.githubusercontent.com/${GALLERY}/main/skills.yaml`,
+      `https://cdn.jsdelivr.net/gh/${GALLERY}@main/skills.yaml`,
+    ];
 
 function isAllSkillsName(name) {
   return ALL_SKILLS_NAMES.has(String(name).trim().toLowerCase());
@@ -57,27 +71,49 @@ async function requireAccountToken() {
   }
 }
 
-async function loadCatalog() {
-  const response = await hfetch(CATALOG_URL, {
-    headers: { accept: "application/vnd.github+json, text/yaml, text/plain" },
+function catalogRequestHeaders(url) {
+  // The raw media type makes the API return the file itself instead of base64
+  // JSON, which GitHub leaves empty once the file passes 1 MB.
+  const headers = { accept: "application/vnd.github.raw+json, application/json, text/yaml, text/plain" };
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  // Only GitHub's API receives the token; mirrors and custom URLs never see it.
+  if (token && new URL(url).hostname === "api.github.com") {
+    headers.authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+async function fetchCatalogSource(url) {
+  const response = await hfetch(url, {
+    headers: catalogRequestHeaders(url),
     signal: AbortSignal.timeout(15_000),
   });
-  if (!response.ok) {
-    throw new Error(`catalog request failed: HTTP ${response.status}`);
-  }
-  const contentType = response.headers.get("content-type") || "";
-  let text;
-  if (contentType.includes("application/json")) {
-    const payload = await response.json();
-    if (typeof payload?.content !== "string") {
-      throw new Error("GitHub API catalog response has no encoded content");
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  // The site answers JSON, which parses as YAML too.
+  const data = parseYaml(await response.text());
+  // A blocked or hijacked mirror can answer 200 with an HTML page; that must
+  // not pass as an empty catalog.
+  if (!Array.isArray(data?.skills)) throw new Error("response is not a skills catalog");
+  return data.skills.filter((skill) => !skill.test);
+}
+
+// Every source describes the same catalog, so the first one that answers
+// wins. Callers still refuse to install when all of them fail.
+export async function loadCatalog(sources = CATALOG_SOURCES) {
+  const failures = [];
+  for (const url of sources) {
+    try {
+      const skills = await fetchCatalogSource(url);
+      if (failures.length) {
+        console.error(`Lovstudio Skills 目录改用 ${new URL(url).host} 读取（${failures.join("; ")}）。`);
+      }
+      return skills;
+    } catch (error) {
+      const cause = error?.cause?.code ? ` (${error.cause.code})` : "";
+      failures.push(`${new URL(url).host} ${error instanceof Error ? error.message : String(error)}${cause}`);
     }
-    text = Buffer.from(payload.content, "base64").toString("utf8");
-  } else {
-    text = await response.text();
   }
-  const data = parseYaml(text) || {};
-  return Array.isArray(data.skills) ? data.skills.filter((skill) => !skill.test) : [];
+  throw new Error(`catalog request failed: ${failures.join("; ")}`);
 }
 
 export function canonicalSkillName(name) {
@@ -294,6 +330,36 @@ async function downloadPaidSkill(skill, token) {
   }
 }
 
+// Free Skills are mirrored at skills/<name> in the public catalog repository,
+// which also carries every other Skill and its case media (over 100 MB, past
+// the installer's 300 s clone limit on slow links). A partial sparse clone
+// fetches only the selected directories. As with paid Skills, the copy is
+// installed from a local path, so `npx skills update` leaves it alone.
+export function checkoutFreeSkills(source, skills, workDir) {
+  const repoDir = join(workDir, "catalog");
+  const steps = [
+    ["clone", "--quiet", "--depth", "1", "--filter=blob:none", "--sparse", source, repoDir],
+    ["-C", repoDir, "sparse-checkout", "set", ...skills.map((skill) => `skills/${skill.name}`)],
+  ];
+  for (const args of steps) {
+    // Each step opens its own GitHub connection (blobs are fetched on
+    // checkout), and flaky links drop some of them. Both steps can be rerun;
+    // a clone whose checkout failed leaves its directory behind.
+    for (let attempt = 1; ; attempt += 1) {
+      if (args[0] === "clone") rmSync(repoDir, { recursive: true, force: true });
+      const result = runCapture("git", args, {
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+        timeout: 300_000,
+      });
+      if (result.status === 0) break;
+      const message = result.error?.message || result.stderr.trim() || `git exited ${result.status}`;
+      if (attempt === GIT_ATTEMPTS) throw new Error(message);
+      console.error(`GitHub 连接失败，正在重试（${attempt + 1}/${GIT_ATTEMPTS}）：${message.split("\n").at(-1)}`);
+    }
+  }
+  return repoDir;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Frontmatter / dependency preflight
 // ─────────────────────────────────────────────────────────────────────────────
@@ -468,6 +534,17 @@ async function addAction(rawArgs) {
       workDir = download.workDir;
       const version = download.version ? ` v${download.version}` : "";
       console.log(`✓ 已下载「${plan.skills[0].name}」${version}（${download.ref}）`);
+    } else if (plan.skills.length) {
+      workDir = await mkdtemp(join(tmpdir(), "lovstudio-skills-"));
+      const names = plan.skills.map((skill) => skill.name).join("」「");
+      try {
+        source = checkoutFreeSkills(plan.source, plan.skills, workDir);
+      } catch (error) {
+        await rm(workDir, { recursive: true, force: true });
+        console.error(`获取「${names}」失败：${error instanceof Error ? error.message : String(error)}`);
+        process.exit(1);
+      }
+      console.log(`✓ 已获取「${names}」`);
     }
     const skillArgs = [
       "-y", SKILLS_NPX_SPEC, "add", source,
