@@ -24,8 +24,27 @@ async function fixture() {
   await mkdir(home);
   await mkdir(bin);
   await writeFile(join(home, "auth.yml"), `access_token: valid-access-token\nrefresh_token: valid-refresh-token\nexpires_at: ${Math.floor(Date.now() / 1000) + 3600}\nuser_id: fixture-user\nemail: fixture@example.com\n`);
-  await writeFile(join(bin, "npx"), '#!/bin/sh\necho "MOCK_NPX:$*"\nif [ -f "$4/SKILL.md" ]; then cat "$4/SKILL.md"; fi\n');
+  await writeFile(join(bin, "npx"), '#!/bin/sh\necho "MOCK_NPX:$*"\nif [ -f "$4/SKILL.md" ]; then cat "$4/SKILL.md"; fi\nfor f in "$4"/skills/*/SKILL.md; do if [ -f "$f" ]; then cat "$f"; fi; done\n');
   await chmod(join(bin, "npx"), 0o755);
+  // Records its arguments, creates the clone target and materializes each
+  // sparse-checkout path as a Skill directory. MOCK_GIT_FAIL_ONCE drops the
+  // first blob fetch, as a flaky link does.
+  await writeFile(join(bin, "git"), [
+    "#!/bin/sh",
+    'echo "$*" >> "$(dirname "$0")/git.log"',
+    'if [ "$1" = "clone" ]; then for target; do :; done; mkdir -p "$target"; exit 0; fi',
+    'if [ "$3" = "sparse-checkout" ] && [ -n "$MOCK_GIT_FAIL_ONCE" ] && [ ! -f "$(dirname "$0")/failed-once" ]; then',
+    '  touch "$(dirname "$0")/failed-once"; echo "fatal: could not fetch 46f1171c from promisor remote" >&2; exit 128',
+    "fi",
+    'if [ "$1" = "-C" ] && [ "$3" = "sparse-checkout" ]; then',
+    '  dir="$2"; shift 4',
+    "  for path; do mkdir -p \"$dir/$path\"; printf '%s\\n' '---' \"name: lov-${path#skills/}\" '---' FREE_SPARSE_SOURCE > \"$dir/$path/SKILL.md\"; done",
+    "  exit 0",
+    "fi",
+    "exit 1",
+    "",
+  ].join("\n"));
+  await chmod(join(bin, "git"), 0o755);
   const archiveDir = join(dir, "archive");
   await mkdir(join(archiveDir, "skill-v0.1.1"), { recursive: true });
   await writeFile(join(archiveDir, "skill-v0.1.1", "SKILL.md"), `---\nname: lov-${skillName}\n---\nVIP_PLAIN_SOURCE\n`);
@@ -61,6 +80,8 @@ const scenarios = [
   { name: "rejected membership session requires reconnect and cannot download", membershipStatus: 401, status: 1 },
   { name: "download entitlement refusal receives VIP link", active: true, owned: true, downloadStatus: 403, status: 1, vip: true },
   { name: "free Skill installs without account, membership or download requests", free: true, status: 0 },
+  { name: "free Skill fetch retries a dropped GitHub connection", free: true, gitFailOnce: true, status: 0 },
+  { name: "the site's compact catalog is read before GitHub", active: true, owned: true, siteCatalog: true, status: 0 },
 ];
 
 for (const scenario of scenarios) {
@@ -76,6 +97,9 @@ for (const scenario of scenarios) {
       if (req.url === "/skills.yaml") {
         res.writeHead(200, { "content-type": "text/yaml" });
         return res.end(scenario.free ? freeCatalog : paidCatalog);
+      }
+      if (req.url === "/api/skills/catalog") {
+        return json(res, 200, { skills: [{ name: skillName, runtime_name: `lov-${skillName}`, paid: true, depends_on: [] }] });
       }
       if (req.url === "/api/cli/auth/start") return json(res, 401, { error: "unauthorized" });
       if (req.url === "/api/cli/auth/refresh") return json(res, 200, {
@@ -104,7 +128,13 @@ for (const scenario of scenarios) {
     await new Promise((resolve) => api.listen(0, "127.0.0.1", resolve));
     const baseUrl = `http://127.0.0.1:${api.address().port}`;
     try {
-      const result = await run({ LOVSTUDIO_HOME: f.home, LOVSTUDIO_WEB_URL: baseUrl, LOVSTUDIO_SKILLS_CATALOG_URL: `${baseUrl}/skills.yaml`, PATH: `${f.bin}${delimiter}${process.env.PATH}` });
+      const result = await run({
+        LOVSTUDIO_HOME: f.home,
+        LOVSTUDIO_WEB_URL: baseUrl,
+        LOVSTUDIO_SKILLS_CATALOG_URL: scenario.siteCatalog ? "" : `${baseUrl}/skills.yaml`,
+        MOCK_GIT_FAIL_ONCE: scenario.gitFailOnce ? "1" : "",
+        PATH: `${f.bin}${delimiter}${process.env.PATH}`,
+      });
       assert.equal(result.status, scenario.status, result.stderr);
       assert.equal(requests.filter((url) => /^\/api\/skills\/(price|purchase)/.test(url)).length, 0, "removed Credits endpoints must never be requested");
       if (scenario.status === 0) {
@@ -123,7 +153,19 @@ for (const scenario of scenarios) {
       if (scenario.nameMismatch) assert.match(result.stderr, /会员权益响应未匹配请求/);
       if (scenario.guest) assert.match(result.stderr, /网站账号连接未完成/);
       if (scenario.expired) assert.equal(requests.filter((url) => url === "/api/cli/auth/refresh").length, 1);
-      if (scenario.free) assert.equal(requests.filter((url) => url.startsWith("/api/")).length, 0);
+      if (scenario.free) {
+        assert.equal(requests.filter((url) => url.startsWith("/api/")).length, 0);
+        // Only the selected directory is fetched; the installer reads the local copy.
+        const sparse = `-C <tmp> sparse-checkout set skills/${skillName}`;
+        assert.deepEqual((await readFile(join(f.bin, "git.log"), "utf8")).trim().split("\n").map((line) => line.replace(/ \/\S+/g, " <tmp>")), [
+          "clone --quiet --depth 1 --filter=blob:none --sparse https://github.com/lovstudio/skills.git <tmp>",
+          ...(scenario.gitFailOnce ? [sparse, sparse] : [sparse]),
+        ]);
+        if (scenario.gitFailOnce) assert.match(result.stderr, /正在重试（2\/3）：fatal: could not fetch/);
+        assert.match(result.stdout, /MOCK_NPX:-y skills@latest add \/\S+ --skill lov-3d-motion-media-creator/);
+        assert.match(result.stdout, /FREE_SPARSE_SOURCE/);
+      }
+      if (scenario.siteCatalog) assert.equal(requests[0], "/api/skills/catalog");
     } finally {
       await new Promise((resolve, reject) => api.close((error) => error ? reject(error) : resolve()));
       await rm(f.dir, { recursive: true, force: true });

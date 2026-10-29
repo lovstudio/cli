@@ -1,5 +1,12 @@
 # lovstudio
 
+## 0.5.2
+
+### Patch Changes
+
+- Fix `skills add` stopping at "读取 Lovstudio Skills 目录失败 … aborted due to timeout" on slow cross-border links. The catalog is now read from lovstudio.ai's `/api/skills/catalog` (about 20 KB with only the install fields) instead of the GitHub API copy of `skills.yaml` (about 740 KB). If the site cannot answer, the CLI falls back to the GitHub API (using `GITHUB_TOKEN` / `GH_TOKEN` when set, sent only to api.github.com), then raw.githubusercontent.com, then jsDelivr. A source that answers with something other than a catalog no longer passes as an empty one, and nothing is installed when no source returns the catalog.
+- Free Skills, including a paid Skill's free dependencies, are fetched with a partial sparse clone of only their `skills/<name>` directories instead of a full clone of the catalog repository (over 100 MB, which slow links could not finish within the installer's 300 s clone limit), then installed from that local copy. Each git step is retried up to three times, since flaky links drop some of the connections. Like paid Skills, these installs are updated by running `skills add` again rather than by `npx skills update`.
+
 ## 0.5.1
 
 ### Patch Changes
